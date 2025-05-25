@@ -5,11 +5,19 @@ const detectLang = require("lang-detector");
 function suggestLanguage(code) {
   return detectLang(code) || "unknown";
 }
-// [GET] /api/snippets
+
+// [GET] /api/snippets?language=javascript&title=button
 exports.getAll = async (req, res) => {
   const query = {};
+
+  // Tìm gần đúng theo language (không phân biệt hoa thường)
   if (req.query.language) {
-    query.language = new RegExp(req.query.language, "i"); // tìm gần đúng
+    query.language = new RegExp(req.query.language, "i");
+  }
+
+  // Tìm gần đúng theo title (không phân biệt hoa thường)
+  if (req.query.title) {
+    query.title = new RegExp(req.query.title, "i");
   }
 
   const snippets = await Snippet.find(query).sort({ createdAt: -1 });

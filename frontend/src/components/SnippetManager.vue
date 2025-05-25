@@ -37,10 +37,16 @@
     <el-divider />
 
     <el-table :data="snippets" style="width: 100%" v-loading="loading">
-      <el-table-column prop="title" label="Title" />
-      <el-table-column prop="language" label="Language" />
-      <el-table-column prop="code" label="Code" />
-      <el-table-column label="Tags">
+      <el-table-column prop="title" label="Title" width="100" />
+      <el-table-column prop="language" label="Language" width="90" />
+      <el-table-column prop="code" label="Code" :min-width="600">
+        <template #default="scope">
+          <pre
+            class="code-block line-numbers"
+          ><code>{{ scope.row.code }}</code></pre>
+        </template>
+      </el-table-column>
+      <el-table-column label="Tags" min-width="90">
         <template #default="scope">
           <el-tag
             v-for="tag in scope.row.tags"
@@ -53,17 +59,37 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Actions" width="120">
+      <el-table-column
+        label="Actions"
+        width="80"
+        header-align="center"
+        class="action-group"
+      >
         <template #default="scope">
-          <el-button size="small" type="warning" @click="editSnippet(scope.row)"
-            >Sửa</el-button
-          >
-          <el-button
-            size="small"
-            type="danger"
-            @click="confirmDelete(scope.row._id)"
-            >Xóa</el-button
-          >
+          <div class="action-buttons">
+            <el-button
+              class="btn-action"
+              size="small"
+              type="primary"
+              @click="copyCode(scope.row.code)"
+            >
+              Copy
+            </el-button>
+            <el-button
+              class="btn-action"
+              size="small"
+              type="warning"
+              @click="editSnippet(scope.row)"
+              >Sửa</el-button
+            >
+            <el-button
+              class="btn-action"
+              size="small"
+              type="danger"
+              @click="confirmDelete(scope.row._id)"
+              >Xóa</el-button
+            >
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -92,8 +118,10 @@
 
 <script setup>
 import { ElMessageBox, ElMessage } from "element-plus";
-import { ref, onMounted } from "vue";
+import { ref, onMounted, nextTick, watch } from "vue";
 import axios from "axios";
+import hljs from "highlight.js";
+import "highlight.js/styles/github-dark.css";
 
 const API = "http://localhost:5000/api/snippets";
 
@@ -112,10 +140,27 @@ const searchLang = ref("");
 const fetchSnippets = async () => {
   loading.value = true;
   const res = await axios.get(API, {
-    params: { language: searchLang.value },
+    params: { language: searchLang.value, title: searchLang.value },
   });
   snippets.value = res.data;
   loading.value = false;
+
+  await highlightCode(); // highlight sau khi gán
+};
+
+const highlightCode = async () => {
+  await nextTick(); // đảm bảo DOM cập nhật xong
+  const blocks = document.querySelectorAll("pre code");
+  blocks.forEach((block) => {
+    const lines = block.innerText.split("\n");
+    block.innerHTML = lines
+      .map((line) => `<span>${line || " "}</span>`)
+      .join("");
+    if (block.dataset.highlighted) {
+      delete block.dataset.highlighted;
+    }
+    hljs.highlightElement(block);
+  });
 };
 
 const addSnippet = async () => {
@@ -184,11 +229,78 @@ const confirmDelete = async (id) => {
     }
   }
 };
+
+const copyCode = (code) => {
+  navigator.clipboard
+    .writeText(code)
+    .then(() => {
+      ElMessage.success("Đã sao chép đoạn code!");
+    })
+    .catch((err) => {
+      ElMessage.error("Không thể sao chép!");
+      console.error(err);
+    });
+};
 </script>
 
 <style>
 .box-card {
-  max-width: 1170px;
+  max-width: 100%;
   margin: 40px auto;
+}
+.wide-card {
+  width: 80%;
+}
+.code-block {
+  background-color: #1e1e1e;
+  color: #dcdcdc;
+  padding: 8px;
+  border-radius: 4px;
+  max-height: 150px;
+  overflow: auto;
+  font-family: Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.code-block.line-numbers {
+  counter-reset: linenumber;
+  padding-left: 2.5em;
+  position: relative;
+}
+
+.code-block.line-numbers code {
+  display: block;
+}
+
+.code-block.line-numbers code span {
+  display: block;
+  position: relative;
+  padding-left: 0.5em;
+}
+
+.code-block.line-numbers code span::before {
+  counter-increment: linenumber;
+  content: counter(linenumber);
+  position: absolute;
+  left: -2.5em;
+  width: 2em;
+  text-align: right;
+  color: #999;
+  font-size: 0.9em;
+}
+.action-group {
+}
+.btn-action {
+  width: 50px;
+  display: block;
+  text-align: center;
+  margin-left: 0 !important;
+  outline: none;
+}
+.action-buttons {
+  display: flex;
+  justify-content: center;
+  row-gap: 10px;
+  flex-direction: column;
 }
 </style>
