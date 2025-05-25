@@ -6,22 +6,45 @@ function suggestLanguage(code) {
   return detectLang(code) || "unknown";
 }
 
-// [GET] /api/snippets?language=javascript&title=button
+// [GET] /api/snippets?search=javascript&page=1&limit=10
 exports.getAll = async (req, res) => {
   const query = {};
+  const searchTerm = req.query.search; // Từ khóa tìm kiếm
 
-  // Tìm gần đúng theo language (không phân biệt hoa thường)
-  if (req.query.language) {
-    query.language = new RegExp(req.query.language, "i");
+  // Phân trang
+  const page = parseInt(req.query.page) || 1; // Trang hiện tại, mặc định là 1
+  const limit = parseInt(req.query.limit) || 10; // Số mục trên mỗi trang, mặc định là 10
+  const skip = (page - 1) * limit; // Số lượng mục cần bỏ qua
+
+  if (searchTerm) {
+    query.$or = [
+      { language: new RegExp(searchTerm, "i") },
+      { title: new RegExp(searchTerm, "i") },
+    ];
   }
 
-  // Tìm gần đúng theo title (không phân biệt hoa thường)
-  if (req.query.title) {
-    query.title = new RegExp(req.query.title, "i");
-  }
+  try {
+    // Đếm tổng số lượng snippet khớp với điều kiện tìm kiếm (nếu có)
+    const totalSnippets = await Snippet.countDocuments(query);
 
-  const snippets = await Snippet.find(query).sort({ createdAt: -1 });
-  res.json(snippets);
+    // Lấy snippet cho trang hiện tại
+    const snippets = await Snippet.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Trả về dữ liệu cùng với thông tin phân trang
+    res.json({
+      snippets,
+      currentPage: page,
+      totalPages: Math.ceil(totalSnippets / limit),
+      totalItems: totalSnippets,
+      itemsPerPage: limit,
+    });
+  } catch (error) {
+    console.error("Error fetching snippets:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 };
 
 // [POST] /api/snippets

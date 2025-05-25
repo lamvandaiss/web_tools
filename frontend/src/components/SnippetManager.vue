@@ -7,14 +7,20 @@
       </div>
     </template>
 
-    <el-form :model="form" label-width="100px" @submit.prevent="addSnippet">
-      <el-form-item label="Title">
+    <el-form
+      :model="form"
+      label-width="250px"
+      @submit.prevent="addSnippet"
+      ref="snippetForm"
+      :rules="formRules"
+    >
+      <el-form-item label="Title" prop="title">
         <el-input v-model="form.title" />
       </el-form-item>
       <el-form-item label="Language">
         <el-input v-model="form.language" />
       </el-form-item>
-      <el-form-item label="Code">
+      <el-form-item label="Code" prop="code">
         <el-input type="textarea" v-model="form.code" rows="4" />
       </el-form-item>
       <el-form-item label="Tags (phân cách bằng dấu phẩy)">
@@ -29,21 +35,23 @@
 
     <el-input
       v-model="searchLang"
-      placeholder="Tìm theo ngôn ngữ"
+      placeholder="Tìm theo ngôn ngữ hoặc title"
       class="mb-4"
       clearable
-      @input="fetchSnippets"
+      @input="debouncedFetchSnippets()"
     />
     <el-divider />
 
     <el-table :data="snippets" style="width: 100%" v-loading="loading">
-      <el-table-column prop="title" label="Title" width="100" />
+      <el-table-column prop="title" label="Title" width="200" />
       <el-table-column prop="language" label="Language" width="90" />
-      <el-table-column prop="code" label="Code" :min-width="600">
+      <el-table-column label="Code" min-width="500">
         <template #default="scope">
-          <pre
-            class="code-block line-numbers"
-          ><code>{{ scope.row.code }}</code></pre>
+          <div class="code-container">
+            <pre
+              :class="`language-${scope.row.language} line-numbers`"
+            ><code>{{ scope.row.code }}</code></pre>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="Tags" min-width="90">
@@ -93,6 +101,22 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <div class="pagination-container">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="[5, 10, 20, 50]"
+        :small="false"
+        :disabled="false"
+        :background="true"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="totalItems"
+        @size-change="handleSizeChange"
+        @current-change="handleCurrentChange"
+      />
+    </div>
+
     <el-dialog v-model="editDialogVisible" title="Chỉnh sửa Snippet">
       <el-form :model="editForm">
         <el-form-item label="Title">
@@ -120,13 +144,24 @@
 import { ElMessageBox, ElMessage } from "element-plus";
 import { ref, onMounted, nextTick, watch } from "vue";
 import axios from "axios";
-import hljs from "highlight.js";
-import "highlight.js/styles/github-dark.css";
+import Prism from "prismjs";
+import "prismjs/themes/prism-tomorrow.css"; // Hoặc chủ đề khác
+import "prismjs/plugins/line-numbers/prism-line-numbers.js";
+import "prismjs/plugins/line-numbers/prism-line-numbers.css";
+// Import các ngôn ngữ bạn muốn highlight
+import "prismjs/components/prism-javascript";
+import "prismjs/components/prism-css";
+import "prismjs/components/prism-markup"; // HTML
+import "prismjs/components/prism-json";
 
 const API = "http://localhost:5000/api/snippets";
 
 const snippets = ref([]);
 const loading = ref(false);
+// --- Biến phân trang ---
+const currentPage = ref(1); // Trang hiện tại
+const pageSize = ref(10); // Số mục trên mỗi trang
+const totalItems = ref(0); // Tổng số mục (từ backend)
 
 const form = ref({
   title: "",
@@ -139,40 +174,57 @@ const searchLang = ref("");
 
 const fetchSnippets = async () => {
   loading.value = true;
-  const res = await axios.get(API, {
-    params: { language: searchLang.value, title: searchLang.value },
-  });
-  snippets.value = res.data;
-  loading.value = false;
-
-  await highlightCode(); // highlight sau khi gán
+  try {
+    const res = await axios.get(API, {
+      params: {
+        search: searchLang.value, // Gửi giá trị tìm kiếm
+        page: currentPage.value, // Gửi trang hiện tại
+        limit: pageSize.value, // Gửi số mục trên mỗi trang
+      },
+    });
+    // Cập nhật dữ liệu và thông tin phân trang từ response của backend
+    snippets.value = res.data.snippets;
+    totalItems.value = res.data.totalItems;
+    await highlightCode();
+  } catch (error) {
+    console.error("Error fetching snippets:", error);
+    ElMessage.error("Không thể tải dữ liệu.");
+  } finally {
+    loading.value = false;
+  }
 };
 
 const highlightCode = async () => {
-  await nextTick(); // đảm bảo DOM cập nhật xong
-  const blocks = document.querySelectorAll("pre code");
-  blocks.forEach((block) => {
-    const lines = block.innerText.split("\n");
-    block.innerHTML = lines
-      .map((line) => `<span>${line || " "}</span>`)
-      .join("");
-    if (block.dataset.highlighted) {
-      delete block.dataset.highlighted;
-    }
-    hljs.highlightElement(block);
-  });
+  await nextTick();
+  Prism.highlightAll(); // Highlight tất cả các block code với class 'language-xxx'
 };
-
 const addSnippet = async () => {
-  if (!form.value.title || !form.value.code) return;
-  await axios.post(API, {
-    title: form.value.title,
-    language: form.value.language,
-    code: form.value.code,
-    tags: form.value.tagsRaw.split(",").map((t) => t.trim()),
+  // Sử dụng validate của form
+  snippetForm.value.validate(async (valid) => {
+    if (valid) {
+      // Nếu form hợp lệ, tiến hành thêm snippet
+      try {
+        await axios.post(API, {
+          title: form.value.title,
+          language: form.value.language,
+          code: form.value.code,
+          tags: form.value.tagsRaw.split(",").map((t) => t.trim()),
+        });
+        form.value = { title: "", language: "", code: "", tagsRaw: "" };
+        // Reset validation state sau khi thêm thành công
+        snippetForm.value.resetFields();
+        ElMessage.success("Đã thêm snippet thành công!");
+        fetchSnippets();
+      } catch (error) {
+        console.error("Error adding snippet:", error);
+        ElMessage.error("Thêm snippet thất bại.");
+      }
+    } else {
+      // Nếu form không hợp lệ, hiển thị thông báo lỗi (Element Plus sẽ tự động hiển thị)
+      ElMessage.warning("Vui lòng điền đầy đủ các trường bắt buộc.");
+      return false; // Ngăn không cho form submit
+    }
   });
-  form.value = { title: "", language: "", code: "", tagsRaw: "" };
-  fetchSnippets();
 };
 
 const editDialogVisible = ref(false);
@@ -241,6 +293,36 @@ const copyCode = (code) => {
       console.error(err);
     });
 };
+
+// --- Validation Rules ---
+const snippetForm = ref(null); // Tạo ref để truy cập form component
+const formRules = {
+  title: [{ required: true, message: "Vui lòng nhập Title", trigger: "blur" }],
+  code: [{ required: true, message: "Vui lòng nhập Code", trigger: "blur" }],
+};
+
+// Debounce setup
+let debounceTimer = null;
+const debouncedFetchSnippets = (delay = 500) => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    // Reset về trang 1 khi thực hiện tìm kiếm mới
+    currentPage.value = 1;
+    fetchSnippets();
+  }, delay);
+};
+
+// --- Hàm xử lý sự kiện phân trang ---
+const handleSizeChange = (val) => {
+  pageSize.value = val;
+  currentPage.value = 1; // Reset về trang 1 khi thay đổi số mục trên trang
+  fetchSnippets();
+};
+
+const handleCurrentChange = (val) => {
+  currentPage.value = val;
+  fetchSnippets();
+};
 </script>
 
 <style>
@@ -302,5 +384,31 @@ const copyCode = (code) => {
   justify-content: center;
   row-gap: 10px;
   flex-direction: column;
+}
+.code-container {
+  max-height: 200px;
+  overflow: auto;
+  border-radius: 4px;
+  background: #1e1e1e;
+  padding: 8px;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.5);
+  border: 1px solid #333;
+}
+
+/* Cải thiện thanh cuộn */
+.code-container::-webkit-scrollbar {
+  width: 8px;
+}
+.code-container::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 4px;
+}
+.code-container::-webkit-scrollbar-track {
+  background-color: #2c2c2c;
+}
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
 }
 </style>
