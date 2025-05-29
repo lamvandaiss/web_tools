@@ -1,0 +1,14 @@
+const express = require('express');
+const router = express.Router();
+const <%= _.camelCase(tableName) %>Controller = require('../controllers/<%= _.camelCase(tableName) %>Controller');
+// Lấy tất cả
+router.get('/', <%= _.camelCase(tableName) %>Controller.getAll<%= _.capitalize(_.camelCase(tableName)) %>s);
+// Lấy theo ID
+router.get('/:id', <%= _.camelCase(tableName) %>Controller.get<%= _.capitalize(_.camelCase(tableName)) %>ById);
+// Tạo mới
+router.post('/', <%= _.camelCase(tableName) %>Controller.create<%= _.capitalize(_.camelCase(tableName)) %>);
+// Cập nhật
+router.put('/:id', <%= _.camelCase(tableName) %>Controller.update<%= _.capitalize(_.camelCase(tableName)) %>);
+// Xóa
+router.delete('/:id', <%= _.camelCase(tableName) %>Controller.delete<%= _.capitalize(_.camelCase(tableName)) %>);
+module.exports = router;

@@ -15,6 +15,8 @@ app.use(morgan("dev"));
 // Routes
 const snippetRoutes = require("../routes/snippet.route");
 app.use("/api/snippets", snippetRoutes);
+const genCodeRoutes = require("../routes/genCode.route");
+app.use("/api/gencodes", genCodeRoutes);
 
 app.get("/", (req, res) => {
   res.send("API is running...");

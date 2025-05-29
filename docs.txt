@@ -404,3 +404,547 @@ Bạn muốn làm tiếp phần nào?
 * 🧠 Tự động gợi ý ngôn ngữ theo code?
 
 Mình sẽ hỗ trợ từng bước nếu bạn muốn làm tiếp.
+
+Rất tuyệt vời! Bạn đang đi đúng hướng trong việc phát triển hệ sinh thái công cụ hỗ trợ nghề lập trình web. Việc tạo **CRUD Generator (Sinh code tự động)** là một bước tiến mạnh mẽ để tăng tốc độ phát triển và tiêu chuẩn hóa code. Dưới đây là gợi ý từng bước để bạn phát triển chức năng này.
+
+---
+
+## 🎯 Mục tiêu của CRUD Generator
+
+* Cho phép người dùng nhập:
+
+  * Tên bảng (collection name).
+  * Danh sách các fields (tên trường, kiểu dữ liệu, bắt buộc hay không,...).
+* Tự động sinh ra:
+
+  * **Model Mongoose**.
+  * **Router + Controller Express**.
+  * **Vue Component (Form + Table + Logic)**.
+  * Các file hỗ trợ: validation, API config,...
+
+---
+
+## 🛠️ Công nghệ bạn đã có
+
+* **Backend**: Node.js (Express), MongoDB.
+* **Frontend**: Vue.js.
+
+---
+
+## 🔧 Gợi ý các bước phát triển chức năng CRUD Generator
+
+### 1. Giao diện đầu vào (Vue)
+
+* Một form nhập:
+
+  * Tên bảng.
+  * Danh sách trường (tên, kiểu dữ liệu, validation).
+* Giao diện có thể dùng:
+
+  * `Table dynamic`: thêm/xoá dòng field.
+  * `Select`: chọn kiểu dữ liệu (String, Number, Boolean, Date,...).
+  * Checkbox: Required.
+
+### 2. Xử lý tạo code (Backend Node.js)
+
+* Khi người dùng submit form → gửi JSON dữ liệu qua API.
+* API nhận request, sinh ra các file dưới dạng text:
+
+  * **Model Mongoose**:
+
+    ```js
+    const mongoose = require('mongoose');
+
+    const YourSchema = new mongoose.Schema({
+      name: { type: String, required: true },
+      age: { type: Number, required: false },
+      ...
+    });
+
+    module.exports = mongoose.model('YourCollectionName', YourSchema);
+    ```
+  * **Controller Express (CRUD)**.
+  * **Router**: import controller, định nghĩa API routes.
+  * **Vue Component**:
+
+    * Form thêm/sửa.
+    * Table hiển thị dữ liệu.
+    * Gọi API (axios).
+
+> 👉 Bạn có thể lưu các template code vào file `.ejs` hoặc `.handlebars`, sau đó dùng `ejs.render(template, data)` để sinh ra code theo từng dự án.
+
+### 3. Hiển thị hoặc tải về
+
+* Cho phép:
+
+  * **Xem trước code** trên trình duyệt (code viewer).
+  * **Tải toàn bộ về dưới dạng .zip** (dùng `archiver` trong Node.js).
+
+---
+
+## 📦 Gợi ý thư viện hữu ích
+
+| Chức năng         | Thư viện                       |
+| ----------------- | ------------------------------ |
+| Tạo file tạm thời | `fs`, `fs-extra`               |
+| Render template   | `ejs`, `handlebars`            |
+| Tạo file zip      | `archiver`                     |
+| Kiểm tra dữ liệu  | `ajv` (JSON Schema Validation) |
+
+---
+
+## 🔁 Ví dụ JSON mẫu đầu vào
+
+```json
+{
+  "collection": "users",
+  "fields": [
+    { "name": "name", "type": "String", "required": true },
+    { "name": "email", "type": "String", "required": true },
+    { "name": "age", "type": "Number", "required": false },
+    { "name": "isActive", "type": "Boolean", "required": false }
+  ]
+}
+```
+
+---
+
+Nếu bạn muốn, mình có thể viết mẫu 1 file backend tạo model/controller/router và 1 file Vue form+table đơn giản từ JSON mẫu trên. Bạn muốn mình bắt đầu từ phần nào trước?
+
+* 🟢 Backend (Node.js): Model, Router, Controller?
+* 🔵 Frontend (Vue): Form + Table + API call?
+* 🟡 Cả hai cùng lúc?
+
+Bạn chọn nhé!
+Tuyệt vời! Chúng ta sẽ bắt đầu với phần **engine sinh mã** ở backend Node.js. Mình sẽ hướng dẫn bạn cách tạo một kịch bản đơn giản để sinh ra Mongoose Model, Express Controller và Express Route dựa trên một đối tượng JSON định nghĩa bảng.
+
+---
+
+### Bước 1: Chuẩn bị Project
+
+Đầu tiên, hãy tạo một thư mục dự án và cài đặt các dependency cần thiết.
+
+1.  **Tạo thư mục dự án:**
+    ```bash
+    mkdir crud-generator-backend
+    cd crud-generator-backend
+    ```
+
+2.  **Khởi tạo `package.json`:**
+    ```bash
+    npm init -y
+    ```
+
+3.  **Cài đặt các thư viện:**
+    ```bash
+    npm install express mongoose lodash # lodash để xử lý tên biến
+    ```
+
+4.  **Tạo cấu trúc thư mục:**
+    ```
+    .
+    ├── src/
+    │   ├── templates/          # Chứa các template code
+    │   │   ├── model.js.ejs
+    │   │   ├── controller.js.ejs
+    │   │   └── route.js.ejs
+    │   └── generator.js        # Logic sinh code chính
+    ├── generated_code/         # Nơi chứa code được sinh ra
+    ├── test_generator.js       # File để test generator
+    └── package.json
+    ```
+
+---
+
+### Bước 2: Tạo các Template Code (dùng EJS)
+
+Mình sẽ sử dụng EJS để làm template engine vì nó đơn giản và dễ đọc. Bạn có thể sử dụng string literals với backticks `` ` `` nếu muốn, nhưng EJS sẽ rõ ràng hơn cho các template lớn.
+
+Tạo các file sau trong thư mục `src/templates/`:
+
+#### 1. `src/templates/model.js.ejs`
+
+Đây là template cho Mongoose Model.
+
+```ejs
+const mongoose = require('mongoose');
+
+const <%= _.camelCase(tableName) %>Schema = new mongoose.Schema({
+  <% fields.forEach(field => { %>
+    <%= field.name %>: {
+      type: <%= field.type %>,
+      <% if (field.required) { %>required: true,<% } %>
+      <% if (field.unique) { %>unique: true,<% } %>
+      // Thêm các thuộc tính khác của Mongoose Schema tại đây nếu cần
+      // Ví dụ: minlength, maxlength, enum, default, v.v.
+    },
+  <% }); %>
+}, { timestamps: true });
+
+module.exports = mongoose.model('<%= _.capitalize(_.camelCase(tableName)) %>', <%= _.camelCase(tableName) %>Schema);
+```
+
+* **Giải thích:**
+    * `<%= tableName %>`: Sẽ được thay thế bằng tên bảng bạn truyền vào.
+    * `_.camelCase(tableName)`: Sử dụng Lodash để chuyển tên bảng sang dạng camelCase (ví dụ: `userName` từ `user_name`).
+    * `_.capitalize(_.camelCase(tableName))`: Để tên model có chữ cái đầu viết hoa (ví dụ: `User`).
+    * `fields.forEach(field => { ... })`: Lặp qua mảng các trường và sinh ra định nghĩa cho từng trường.
+    * `if (field.required)` và `if (field.unique)`: Thêm các thuộc tính `required` và `unique` nếu chúng được định nghĩa trong dữ liệu đầu vào.
+
+#### 2. `src/templates/controller.js.ejs`
+
+Đây là template cho Express Controller.
+
+```ejs
+const <%= _.capitalize(_.camelCase(tableName)) %> = require('../models/<%= _.camelCase(tableName) %>');
+
+// Lấy tất cả <%= _.capitalize(_.camelCase(tableName)) %>
+exports.getAll<%= _.capitalize(_.camelCase(tableName)) %>s = async (req, res) => {
+  try {
+    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.find();
+    res.status(200).json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Lấy <%= _.capitalize(_.camelCase(tableName)) %> theo ID
+exports.get<%= _.capitalize(_.camelCase(tableName)) %>ById = async (req, res) => {
+  try {
+    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.findById(req.params.id);
+    if (!data) {
+      return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+    }
+    res.status(200).json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Tạo mới <%= _.capitalize(_.camelCase(tableName)) %>
+exports.create<%= _.capitalize(_.camelCase(tableName)) %> = async (req, res) => {
+  const newData = new <%= _.capitalize(_.camelCase(tableName)) %>(req.body);
+  try {
+    const savedData = await newData.save();
+    res.status(201).json(savedData);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Cập nhật <%= _.capitalize(_.camelCase(tableName)) %>
+exports.update<%= _.capitalize(_.camelCase(tableName)) %> = async (req, res) => {
+  try {
+    const updatedData = await <%= _.capitalize(_.camelCase(tableName)) %>.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!updatedData) {
+      return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+    }
+    res.status(200).json(updatedData);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Xóa <%= _.capitalize(_.camelCase(tableName)) %>
+exports.delete<%= _.capitalize(_.camelCase(tableName)) %> = async (req, res) => {
+  try {
+    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.findByIdAndDelete(req.params.id);
+    if (!data) {
+      return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+    }
+    res.status(200).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+```
+
+#### 3. `src/templates/route.js.ejs`
+
+Đây là template cho Express Route.
+
+```ejs
+const express = require('express');
+const router = express.Router();
+const <%= _.camelCase(tableName) %>Controller = require('../controllers/<%= _.camelCase(tableName) %>Controller');
+
+// Lấy tất cả
+router.get('/', <%= _.camelCase(tableName) %>Controller.getAll<%= _.capitalize(_.camelCase(tableName)) %>s);
+
+// Lấy theo ID
+router.get('/:id', <%= _.camelCase(tableName) %>Controller.get<%= _.capitalize(_.camelCase(tableName)) %>ById);
+
+// Tạo mới
+router.post('/', <%= _.camelCase(tableName) %>Controller.create<%= _.capitalize(_.camelCase(tableName)) %>);
+
+// Cập nhật
+router.put('/:id', <%= _.camelCase(tableName) %>Controller.update<%= _.capitalize(_.camelCase(tableName)) %>);
+
+// Xóa
+router.delete('/:id', <%= _.camelCase(tableName) %>Controller.delete<%= _.capitalize(_.camelCase(tableName)) %>);
+
+module.exports = router;
+```
+
+---
+
+### Bước 3: Viết Logic Sinh Code (`src/generator.js`)
+
+File này sẽ chứa hàm chính để nhận định nghĩa bảng và sinh ra các file.
+
+```javascript
+const fs = require('fs');
+const path = require('path');
+const ejs = require('ejs');
+const _ = require('lodash'); // Import lodash
+
+// Hàm để sinh mã dựa trên định nghĩa bảng
+async function generateCode(tableDefinition) {
+  const { tableName, fields } = tableDefinition;
+  const capitalizedTableName = _.capitalize(_.camelCase(tableName)); // User, Product
+  const camelCaseTableName = _.camelCase(tableName); // user, product
+
+  // Đường dẫn đến thư mục chứa code được sinh ra
+  const outputDir = path.join(__dirname, '..', 'generated_code', camelCaseTableName);
+
+  // Tạo thư mục nếu chưa tồn tại
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+  const modelDir = path.join(outputDir, 'models');
+  const controllerDir = path.join(outputDir, 'controllers');
+  const routesDir = path.join(outputDir, 'routes');
+
+  [modelDir, controllerDir, routesDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir);
+    }
+  });
+
+  // Data để truyền vào template EJS
+  const templateData = {
+    tableName: camelCaseTableName, // dùng camelCase cho tên file và biến
+    capitalizedTableName: capitalizedTableName, // dùng Capitalize cho tên Model và hàm
+    fields: fields,
+    _: _, // Truyền lodash vào template để dùng
+  };
+
+  // 1. Sinh Model
+  const modelTemplatePath = path.join(__dirname, 'templates', 'model.js.ejs');
+  const modelCode = await ejs.renderFile(modelTemplatePath, templateData);
+  fs.writeFileSync(path.join(modelDir, `${camelCaseTableName}.js`), modelCode);
+  console.log(`Generated Model: ${modelDir}/${camelCaseTableName}.js`);
+
+  // 2. Sinh Controller
+  const controllerTemplatePath = path.join(__dirname, 'templates', 'controller.js.ejs');
+  const controllerCode = await ejs.renderFile(controllerTemplatePath, templateData);
+  fs.writeFileSync(path.join(controllerDir, `${camelCaseTableName}Controller.js`), controllerCode);
+  console.log(`Generated Controller: ${controllerDir}/${camelCaseTableName}Controller.js`);
+
+  // 3. Sinh Route
+  const routeTemplatePath = path.join(__dirname, 'templates', 'route.js.ejs');
+  const routeCode = await ejs.renderFile(routeTemplatePath, templateData);
+  fs.writeFileSync(path.join(routesDir, `${camelCaseTableName}Routes.js`), routeCode);
+  console.log(`Generated Route: ${routesDir}/${camelCaseTableName}Routes.js`);
+
+  console.log(`\nCode generation completed for table: ${tableName}`);
+  console.log(`Output directory: ${outputDir}`);
+}
+
+module.exports = { generateCode };
+```
+
+---
+
+### Bước 4: Viết File Test (`test_generator.js`)
+
+File này sẽ dùng để kiểm tra xem `generator.js` có hoạt động đúng không.
+
+```javascript
+const { generateCode } = require('./src/generator');
+
+// Định nghĩa mẫu bảng đầu vào
+const userTableDefinition = {
+  tableName: 'User',
+  fields: [
+    { name: 'username', type: 'String', required: true, unique: true },
+    { name: 'email', type: 'String', required: true, unique: true },
+    { name: 'password', type: 'String', required: true },
+    { name: 'age', type: 'Number', required: false },
+    { name: 'isAdmin', type: 'Boolean', default: false },
+    { name: 'createdAt', type: 'Date', default: 'Date.now' }, // Lưu ý: default là string, cần xử lý trong model
+  ],
+};
+
+const productTableDefinition = {
+  tableName: 'Product',
+  fields: [
+    { name: 'name', type: 'String', required: true },
+    { name: 'price', type: 'Number', required: true },
+    { name: 'description', type: 'String' },
+    { name: 'category', type: 'String' },
+    { name: 'stock', type: 'Number', default: 0 },
+  ],
+};
+
+async function runTests() {
+  console.log('--- Generating code for User table ---');
+  await generateCode(userTableDefinition);
+
+  console.log('\n--- Generating code for Product table ---');
+  await generateCode(productTableDefinition);
+
+  // Bạn có thể thêm các định nghĩa bảng khác để test
+}
+
+runTests().catch(console.error);
+```
+
+---
+
+### Bước 5: Chạy thử Generator
+
+1.  **Chắc chắn bạn đang ở thư mục gốc của dự án (`crud-generator-backend`).**
+2.  **Chạy file test:**
+    ```bash
+    node test_generator.js
+    ```
+
+Sau khi chạy lệnh trên, bạn sẽ thấy các thông báo `Generated Model`, `Generated Controller`, `Generated Route` trong console. Đồng thời, một thư mục `generated_code` sẽ được tạo ra, chứa các thư mục con cho `user` và `product`, và bên trong mỗi thư mục đó sẽ có các file `models`, `controllers`, `routes` đã được sinh mã.
+
+---
+
+### Kết quả (Ví dụ về code sinh ra cho `user`)
+
+**`generated_code/user/models/user.js`**
+
+```javascript
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  age: {
+    type: Number,
+  },
+  isAdmin: {
+    type: Boolean,
+  },
+  createdAt: {
+    type: Date,
+  },
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', userSchema);
+```
+
+**`generated_code/user/controllers/userController.js`**
+
+```javascript
+const User = require('../models/user');
+
+// Lấy tất cả Users
+exports.getAllUsers = async (req, res) => {
+  try {
+    const data = await User.find();
+    res.status(200).json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Lấy User theo ID
+exports.getUserById = async (req, res) => {
+  try {
+    const data = await User.findById(req.params.id);
+    if (!data) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Tạo mới User
+exports.createUser = async (req, res) => {
+  const newData = new User(req.body);
+  try {
+    const savedData = await newData.save();
+    res.status(201).json(savedData);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Cập nhật User
+exports.updateUser = async (req, res) => {
+  try {
+    const updatedData = await User.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!updatedData) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json(updatedData);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Xóa User
+exports.deleteUser = async (req, res) => {
+  try {
+    const data = await User.findByIdAndDelete(req.params.id);
+    if (!data) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json({ message: 'User deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+```
+
+**`generated_code/user/routes/userRoutes.js`**
+
+```javascript
+const express = require('express');
+const router = express.Router();
+const userController = require('../controllers/userController');
+
+// Lấy tất cả
+router.get('/', userController.getAllUsers);
+
+// Lấy theo ID
+router.get('/:id', userController.getUserById);
+
+// Tạo mới
+router.post('/', userController.createUser);
+
+// Cập nhật
+router.put('/:id', userController.updateUser);
+
+// Xóa
+router.delete('/:id', userController.deleteUser);
+
+module.exports = router;
+```
+
+---
+
+### Bước tiếp theo
+
+Với các bước trên, bạn đã có một engine sinh mã cơ bản. Bước tiếp theo sẽ là tích hợp nó vào một API endpoint Express để frontend (Vue.js với Element Plus) có thể gọi tới để sinh mã.
+
+Bạn muốn mình hướng dẫn tiếp cách tích hợp `generateCode` vào một ứng dụng Express không?
