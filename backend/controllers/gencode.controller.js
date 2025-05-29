@@ -3,29 +3,34 @@ const path = require("path");
 const ejs = require("ejs");
 const _ = require("lodash");
 
+const GENERATED_CODE_ROOT_DIR = path.join(
+  __dirname,
+  "..", // Ra khỏi thư mục 'controllers'
+  "generated_code" // Vào thư mục 'generated_code'
+);
+
+// Đường dẫn đến thư mục chứa các template (model.js.ejs, controller.js.ejs, etc.)
+const TEMPLATES_DIR = path.join(__dirname, "../gen_templates");
+// Một mảng để lưu trữ tên các route file đã sinh ra
+const generatedRouteFiles = [];
+
 // Hàm để sinh mã dựa trên định nghĩa bảng
 async function generateCode(tableDefinition) {
   const { tableName, fields } = tableDefinition;
   const capitalizedTableName = _.capitalize(_.camelCase(tableName));
   const camelCaseTableName = _.camelCase(tableName);
 
-  const outputDir = path.join(
-    __dirname,
-    "..",
-    "generated_code",
-    camelCaseTableName
+  // Tạo các thư mục con trong generated_code nếu chưa tồn tại
+  const modelsOutputDir = path.join(GENERATED_CODE_ROOT_DIR, "models");
+  const controllersOutputDir = path.join(
+    GENERATED_CODE_ROOT_DIR,
+    "controllers"
   );
+  const routesOutputDir = path.join(GENERATED_CODE_ROOT_DIR, "routes");
 
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-  const modelDir = path.join(outputDir, "models");
-  const controllerDir = path.join(outputDir, "controllers");
-  const routesDir = path.join(outputDir, "routes");
-
-  [modelDir, controllerDir, routesDir].forEach((dir) => {
+  [modelsOutputDir, controllersOutputDir, routesOutputDir].forEach((dir) => {
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir);
+      fs.mkdirSync(dir, { recursive: true });
     }
   });
 
@@ -37,47 +42,64 @@ async function generateCode(tableDefinition) {
   };
 
   // 1. Sinh Model
-  const modelTemplatePath = path.join(
-    __dirname,
-    "../gen_templates",
-    "model.js.ejs"
-  );
+  const modelTemplatePath = path.join(TEMPLATES_DIR, "model.js.ejs");
   let modelCode = await ejs.renderFile(modelTemplatePath, templateData);
-  fs.writeFileSync(path.join(modelDir, `${camelCaseTableName}.js`), modelCode);
-  console.log(`Generated Model: ${modelDir}/${camelCaseTableName}.js`);
-  // 2. Sinh Controller
-  const controllerTemplatePath = path.join(
-    __dirname,
-    "../gen_templates",
-    "controller.js.ejs"
+  fs.writeFileSync(
+    path.join(modelsOutputDir, `${camelCaseTableName}.js`),
+    modelCode
   );
+  console.log(`Generated Model: ${modelsOutputDir}/${camelCaseTableName}.js`);
+
+  // 2. Sinh Controller
+  const controllerTemplatePath = path.join(TEMPLATES_DIR, "controller.js.ejs");
   let controllerCode = await ejs.renderFile(
     controllerTemplatePath,
     templateData
   );
   fs.writeFileSync(
-    path.join(controllerDir, `${camelCaseTableName}Controller.js`),
+    path.join(controllersOutputDir, `${camelCaseTableName}Controller.js`),
     controllerCode
   );
   console.log(
-    `Generated Controller: ${controllerDir}/${camelCaseTableName}Controller.js`
-  ); // Đã sửa
+    `Generated Controller: ${controllersOutputDir}/${camelCaseTableName}Controller.js`
+  );
 
   // 3. Sinh Route
-  const routeTemplatePath = path.join(
-    __dirname,
-    "../gen_templates",
-    "route.js.ejs"
-  );
+  const routeTemplatePath = path.join(TEMPLATES_DIR, "route.js.ejs");
   let routeCode = await ejs.renderFile(routeTemplatePath, templateData);
   fs.writeFileSync(
-    path.join(routesDir, `${camelCaseTableName}Routes.js`),
+    path.join(routesOutputDir, `${camelCaseTableName}Routes.js`),
     routeCode
   );
-  console.log(`Generated Route: ${routesDir}/${camelCaseTableName}Routes.js`); // Đã sửa
+  console.log(
+    `Generated Route: ${routesOutputDir}/${camelCaseTableName}Routes.js`
+  );
+
+  // Thêm tên file route đã sinh vào mảng
+  generatedRouteFiles.push(`${camelCaseTableName}Routes`);
 
   console.log(`\nCode generation completed for table: ${tableName}`);
-  console.log(`Output directory: ${outputDir}`);
+}
+
+// Hàm để sinh ra file index.js tổng hợp các routes
+async function generateIndexRouteFile() {
+  const routesOutputDir = path.join(GENERATED_CODE_ROOT_DIR, "routes");
+  const indexPath = path.join(routesOutputDir, "index.js");
+
+  let indexContent = `const express = require('express');\nconst router = express.Router();\n\n`;
+
+  generatedRouteFiles.forEach((routeFile) => {
+    // Đảm bảo tên biến cho router là duy nhất và dễ đọc
+    const routerVariableName =
+      _.camelCase(routeFile.replace("Routes", "")) + "Router";
+    indexContent += `const ${routerVariableName} = require('./${routeFile}');\n`;
+    indexContent += `router.use('/${_.kebabCase(routeFile.replace("Routes", ""))}', ${routerVariableName});\n\n`;
+  });
+
+  indexContent += `module.exports = router;\n`;
+
+  fs.writeFileSync(indexPath, indexContent);
+  console.log(`Generated Index Route File: ${indexPath}`);
 }
 
 exports.runTests = async (req, res) => {
@@ -112,5 +134,8 @@ exports.runTests = async (req, res) => {
   console.log("\n--- Generating code for Product table ---");
   await generateCode(productTableDefinition);
 
-  // Bạn có thể thêm các định nghĩa bảng khác để test
+  // Gọi hàm sinh file index.js sau khi tất cả routes đã được tạo
+  await generateIndexRouteFile();
+
+  console.log('\nTests completed. Check the "generated_code" folder.');
 };
