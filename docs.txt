@@ -948,3 +948,434 @@ module.exports = router;
 Với các bước trên, bạn đã có một engine sinh mã cơ bản. Bước tiếp theo sẽ là tích hợp nó vào một API endpoint Express để frontend (Vue.js với Element Plus) có thể gọi tới để sinh mã.
 
 Bạn muốn mình hướng dẫn tiếp cách tích hợp `generateCode` vào một ứng dụng Express không?
+
+Đây là một ý tưởng rất thú vị và thể hiện một bước tiến lớn trong project của bạn, từ việc sinh code CRUD cơ bản sang một **hệ thống tạo mã thông minh hơn, dựa trên loại hình website**.
+
+Mục tiêu của bạn là:
+1.  **Phân loại website:** Tin tức, Bán hàng, Blog, Portfolio, v.v.
+2.  **Thiết kế CSDL ban đầu cho mỗi loại:** Mỗi loại hình sẽ có các bảng (models) và các trường (fields) đặc trưng.
+3.  **Sinh code backend tương ứng:** Dựa trên CSDL đã định nghĩa, sinh ra các Models, Controllers, Routes.
+4.  **Đảm bảo code sinh ra là "duy nhất" và không trùng lặp:** Mỗi lần sinh ra sẽ có sự khác biệt (ví dụ: tên biến, cách tổ chức nhẹ nhàng) để tránh trùng lặp code hoàn toàn.
+
+Để đạt được mục tiêu này, chúng ta cần mở rộng kiến trúc hiện tại của bạn.
+
+---
+
+### Phân tích và Kế hoạch thực hiện
+
+#### 1. Định nghĩa "Dạng website" và CSDL tương ứng:
+
+Bạn cần một nơi để lưu trữ định nghĩa cho từng loại website. Đây có thể là các file cấu hình JSON hoặc các đối tượng JavaScript trong code của bạn.
+
+* **Website Tin tức:**
+    * `Post` (title, content, author, category, tags, publishedDate, imageUrl, views)
+    * `Category` (name, slug)
+    * `Comment` (content, author, postId)
+    * `User` (username, email, password, role)
+* **Website Bán hàng (E-commerce):**
+    * `Product` (name, description, price, stock, category, images, reviews, sku)
+    * `Category` (name, slug)
+    * `User` (username, email, password, role, shippingAddress, billingAddress)
+    * `Order` (userId, items[], totalAmount, status, orderDate)
+    * `OrderItem` (productId, quantity, price)
+    * `Review` (userId, productId, rating, comment)
+* **Website Blog:** Có thể tương tự Tin tức nhưng đơn giản hơn.
+
+**Giải pháp:**
+Tạo một thư mục `src/definitions` (hoặc `backend/definitions`) và bên trong đó, tạo các file JSON hoặc JS object cho từng loại website. Ví dụ: `newsWebsite.js`, `ecommerceWebsite.js`. Mỗi file sẽ chứa một mảng các `tableDefinition` (như `userTableDefinition`, `productTableDefinition` mà bạn đã có).
+
+```javascript
+// src/definitions/newsWebsite.js
+module.exports = {
+  name: "Website Tin tức",
+  description: "Cấu hình backend cho một website tin tức cơ bản.",
+  tables: [
+    {
+      tableName: "User",
+      fields: [ /* ... */ ]
+    },
+    {
+      tableName: "Post",
+      fields: [ /* ... */ ]
+    },
+    // ... các định nghĩa bảng khác
+  ]
+};
+```
+
+#### 2. Cập nhật API Endpoint để nhận loại hình website:
+
+API endpoint hiện tại của bạn chỉ nhận một `tableDefinition`. Giờ đây, nó sẽ nhận một `websiteType` (ví dụ: "news", "ecommerce").
+
+**Giải pháp:**
+Chỉnh sửa API endpoint trong file `routes` và `controller` của bạn (ví dụ: `backend/routes/genCode.route.js` và `backend/controllers/gencode.controller.js`).
+
+* Endpoint có thể là `POST /api/generate-website-code`
+* Body của request sẽ chứa `{ websiteType: "news" }`
+
+#### 3. Điều chỉnh Logic Sinh Code (`gencode.controller.js`):
+
+File này sẽ là trung tâm của logic mới.
+
+* **Đọc định nghĩa Website:** Dựa vào `websiteType` nhận được, load định nghĩa website tương ứng từ thư mục `src/definitions`.
+* **Vòng lặp qua các bảng:** Duyệt qua tất cả các `tableDefinition` trong định nghĩa website.
+* **Gọi `generateCode` cho từng bảng:** Với mỗi `tableDefinition`, gọi hàm `generateCode` hiện có của bạn.
+* **Sinh file `index.js` tổng hợp:** Sau khi sinh tất cả code cho các bảng, tạo lại file `routes/index.js` như bạn đã làm.
+
+#### 4. Đảm bảo code sinh ra là "duy nhất" và tránh trùng lặp:
+
+Đây là phần phức tạp nhất và yêu cầu một số kỹ thuật sáng tạo.
+
+* **Tên biến/hàm ngẫu nhiên (hoặc dựa trên hash):**
+    * Thay vì chỉ dùng `camelCaseTableName`, bạn có thể thêm một hậu tố ngẫu nhiên (hash ngắn) vào tên biến hoặc tên file nếu cần sự duy nhất triệt để (mặc dù với các tên theo `camelCaseTableName` thì đã đủ duy nhất cho mỗi model/controller/route).
+    * Tuy nhiên, việc này có thể làm code khó đọc hơn. Mục tiêu "không trùng lặp" có thể hiểu theo nhiều cách. Nếu là tránh trùng lặp chức năng/tên file, thì cấu trúc hiện tại đã làm được. Nếu là thay đổi cấu trúc code nội bộ thì phức tạp hơn.
+
+* **Thay đổi nhẹ trong template:**
+    * **Thứ tự import:** Có thể sắp xếp ngẫu nhiên thứ tự import trong `index.js` (không khuyến khích vì làm code khó đọc).
+    * **Thêm comments ngẫu nhiên:** Thêm các dòng comment ngẫu nhiên, thay đổi spacing/newline nhỏ (Prettier sẽ xóa chúng nếu bạn bật lại).
+    * **Tùy biến chi tiết template (phức tạp):** Đây là cách hiệu quả nhất để làm cho code khác biệt nhưng cũng phức tạp nhất. Ví dụ, cho phép user chọn cách handle lỗi, hoặc thêm các middleware tùy chỉnh... Nhưng điều này sẽ làm tăng số lượng template hoặc làm template trở nên rất phức tạp.
+
+**Khuyến nghị về "duy nhất":**
+Nếu mục tiêu là mỗi lần sinh code cho cùng một loại website, code output ra lại khác nhau *về mặt cú pháp/cấu trúc nhỏ* để tránh việc so sánh file byte-by-byte bị coi là trùng lặp, thì bạn có thể:
+    * Thêm một dòng comment ngẫu nhiên với một timestamp hoặc UUID vào đầu mỗi file được sinh ra.
+    * Sử dụng một số tùy chọn khác của Prettier nếu bạn muốn bật lại nó (ví dụ: `printWidth` ngẫu nhiên trong một khoảng nhất định).
+    * Tuy nhiên, nếu mục tiêu là *tránh trùng lặp chức năng/tên file* thì cấu trúc hiện tại (sinh file theo tên bảng) đã đảm bảo điều đó.
+
+**Lần này, mình sẽ tập trung vào việc tạo ra các định nghĩa website và thay đổi API để nhận loại hình website, sau đó sinh code tương ứng.** Về phần "không trùng lặp code", mình sẽ thêm một comment ngẫu nhiên vào mỗi file được sinh ra, đó là cách đơn giản nhất để làm cho file khác nhau về mặt nội dung.
+
+---
+
+### Kế hoạch hành động chi tiết:
+
+1.  **Tạo thư mục `definitions`:**
+    * `F:\web_tools\backend\definitions\newsWebsite.js`
+    * `F:\web_tools\backend\definitions\ecommerceWebsite.js`
+
+2.  **Cập nhật `gencode.controller.js`:**
+    * Thêm hàm `generateWebsiteCode` nhận `websiteType`.
+    * Đọc định nghĩa website từ file tương ứng.
+    * Duyệt qua các bảng và gọi `generateCode` cho từng bảng.
+    * Gọi `generateIndexRouteFile` sau cùng.
+    * Thêm logic để thêm comment ngẫu nhiên vào đầu mỗi file sinh ra.
+
+3.  **Tạo một API route mới:**
+    * `F:\web_tools\backend\routes\websiteGen.route.js` (hoặc thêm vào `genCode.route.js`)
+    * Endpoint `POST /api/generate-website-code`
+    * Gọi hàm `generateWebsiteCode` từ controller.
+
+4.  **Tích hợp route mới vào `app.js`:**
+    * `app.use('/api/generate-website-code', websiteGenRoute);`
+
+---
+
+Bạn đã sẵn sàng để bắt đầu với bước 1: **Tạo các file định nghĩa website** chưa?
+
+Tuyệt vời! Đây là một bước tiến lớn để tạo ra một dự án backend hoàn chỉnh. Chúng ta sẽ điều chỉnh logic sinh code để tạo ra một cấu trúc project đầy đủ, bao gồm `.env`, `package.json`, và thư mục `src` với `app.js`, `server.js` bên trong.
+
+### Phân tích và Kế hoạch
+
+Để làm được điều này, chúng ta sẽ:
+
+1.  **Thêm một hằng số mới:** `GENERATED_PROJECTS_DIR` để chỉ ra thư mục gốc chứa tất cả các project backend được sinh ra (ví dụ: `F:\web_tools\backend\generated_projects`).
+2.  **Giới thiệu biến `currentProjectRoot`:** Một biến toàn cục (trong phạm vi module) sẽ giữ đường dẫn đến thư mục gốc của project backend *đang được sinh ra* (ví dụ: `F:\web_tools\backend\generated_projects\my_news_app`).
+3.  **Điều chỉnh `getGeneratedCodeSrcDir()`:** Hàm này sẽ trả về đường dẫn đến thư mục `src` bên trong project đang được sinh ra (ví dụ: `F:\web_tools\backend\generated_projects\my_news_app\src`).
+4.  **Tạo một hàm chính mới: `generateFullBackendProject(websiteType, projectName)`:** Hàm này sẽ là điểm khởi đầu cho việc sinh ra toàn bộ project. Nó sẽ:
+    * Tạo thư mục gốc cho project mới (`currentProjectRoot`).
+    * Tạo thư mục `src` bên trong project đó.
+    * Gọi các hàm sinh file `.env`, `package.json`, `app.js`, `server.js`.
+    * Gọi hàm `generateWebsiteCodeInternal` (phiên bản đã đổi tên của `generateWebsiteCode` cũ) để sinh các models, controllers, routes vào đúng thư mục `src` của project mới.
+5.  **Đổi tên `generateWebsiteCode` thành `generateWebsiteCodeInternal`:** Để hàm này chỉ được gọi nội bộ bởi `generateFullBackendProject`.
+6.  **Cập nhật các hàm `generateCode` và `generateIndexRouteFile`:** Để chúng sử dụng `getGeneratedCodeSrcDir()` thay vì `GENERATED_CODE_ROOT_DIR` cố định.
+7.  **Tạo các template mới:** `env.ejs`, `package.json.ejs`, `app.js.ejs`, `server.js.ejs`.
+
+---
+
+### Bước 1: Cập nhật `gencode.controller.js` và tạo thư mục `generated_projects`
+
+**Hành động:**
+
+1.  **Tạo thư mục `generated_projects`:**
+    Trong thư mục gốc của project backend của bạn (`F:\web_tools\backend`), hãy tạo một thư mục mới có tên là `generated_projects`. Đây sẽ là nơi chứa các project backend hoàn chỉnh được sinh ra.
+
+    Cấu trúc sẽ như sau:
+
+    ```
+    F:\web_tools\backend\
+    ├── generated_projects/      <-- Thư mục mới
+    ├── definitions/
+    ├── controllers/
+    ├── gen_templates/
+    ├── src/
+    ├── package.json
+    └── ...
+    ```
+
+2.  **Mở file `F:\web_tools\backend\controllers\gencode.controller.js`.**
+
+3.  **Cập nhật các hằng số và thêm biến toàn cục:**
+    Thay thế các dòng liên quan đến `GENERATED_CODE_ROOT_DIR` và thêm `GENERATED_PROJECTS_DIR`, `currentProjectRoot` như sau:
+
+    ```javascript
+    const fs = require("fs");
+    const path = require("path");
+    const ejs = require("ejs");
+    const _ = require("lodash");
+    // const prettier = require("prettier"); // Giữ comment hoặc xóa nếu bạn đã gỡ prettier
+
+    // Hàm tạo chuỗi ngẫu nhiên cho comment (để code sinh ra "khác" nhau mỗi lần)
+    function generateRandomString(length) {
+      const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let result = '';
+      for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+      }
+      return result;
+    }
+
+    // Hàm thêm comment ngẫu nhiên vào đầu file
+    function addRandomComment(code) {
+      const timestamp = new Date().toISOString();
+      const randomId = generateRandomString(8);
+      return `/* Generated on: ${timestamp} - ID: ${randomId} */\n\n` + code;
+    }
+
+    // --- HẰNG SỐ VÀ BIẾN TOÀN CỤC MỚI/CẬP NHẬT ---
+
+    // Đường dẫn gốc nơi tất cả các project backend được sinh ra sẽ nằm
+    const GENERATED_PROJECTS_DIR = path.join(
+      __dirname,
+      "..", // Ra khỏi thư mục 'controllers'
+      "generated_projects" // Vào thư mục 'generated_projects'
+    );
+
+    // Biến này sẽ giữ đường dẫn đến thư mục gốc của project đang được sinh ra
+    let currentProjectRoot = '';
+
+    // Hàm trả về đường dẫn đến thư mục 'src' bên trong project đang được sinh ra
+    const getGeneratedCodeSrcDir = () => path.join(currentProjectRoot, 'src');
+
+    // Đường dẫn đến thư mục chứa các template (model.js.ejs, controller.js.ejs, etc.)
+    const TEMPLATES_DIR = path.join(
+      __dirname,
+      "../gen_templates"
+    );
+
+    // Đường dẫn đến thư mục chứa các định nghĩa website
+    const DEFINITIONS_DIR = path.join(
+      __dirname,
+      "..",
+      "definitions"
+    );
+
+    // Một mảng để lưu trữ tên các route file đã sinh ra (reset cho mỗi lần sinh website)
+    const generatedRouteFiles = [];
+
+    // --- KẾT THÚC HẰNG SỐ VÀ BIẾN TOÀN CỤC ---
+    ```
+
+4.  **Cập nhật hàm `generateCode`:**
+    Thay đổi cách nó xác định `modelsOutputDir`, `controllersOutputDir`, `routesOutputDir` để sử dụng `getGeneratedCodeSrcDir()`.
+
+    ```javascript
+    // Hàm để sinh mã dựa trên định nghĩa bảng (models, controllers, routes)
+    async function generateCode(tableDefinition) {
+      const { tableName, fields } = tableDefinition;
+      const capitalizedTableName = _.capitalize(_.camelCase(tableName));
+      const camelCaseTableName = _.camelCase(tableName);
+
+      // Các thư mục con sẽ được tạo bên trong thư mục 'src' của project được sinh ra
+      const modelsOutputDir = path.join(getGeneratedCodeSrcDir(), "models");
+      const controllersOutputDir = path.join(getGeneratedCodeSrcDir(), "controllers");
+      const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes");
+
+      [modelsOutputDir, controllersOutputDir, routesOutputDir].forEach((dir) => {
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      });
+
+      const templateData = {
+        tableName: camelCaseTableName,
+        capitalizedTableName: capitalizedTableName,
+        fields: fields,
+        _: _,
+      };
+
+      // 1. Sinh Model
+      const modelTemplatePath = path.join(TEMPLATES_DIR, "model.js.ejs");
+      let modelCode = await ejs.renderFile(modelTemplatePath, templateData);
+      modelCode = addRandomComment(modelCode);
+      fs.writeFileSync(
+        path.join(modelsOutputDir, `${camelCaseTableName}.js`),
+        modelCode
+      );
+      console.log(
+        `Generated Model: ${modelsOutputDir}/${camelCaseTableName}.js`
+      );
+
+      // 2. Sinh Controller
+      const controllerTemplatePath = path.join(TEMPLATES_DIR, "controller.js.ejs");
+      let controllerCode = await ejs.renderFile(
+        controllerTemplatePath,
+        templateData
+      );
+      controllerCode = addRandomComment(controllerCode);
+      fs.writeFileSync(
+        path.join(controllersOutputDir, `${camelCaseTableName}Controller.js`),
+        controllerCode
+      );
+      console.log(
+        `Generated Controller: ${controllersOutputDir}/${camelCaseTableName}Controller.js`
+      );
+
+      // 3. Sinh Route
+      const routeTemplatePath = path.join(TEMPLATES_DIR, "route.js.ejs");
+      let routeCode = await ejs.renderFile(routeTemplatePath, templateData);
+      routeCode = addRandomComment(routeCode);
+      fs.writeFileSync(
+        path.join(routesOutputDir, `${camelCaseTableName}Routes.js`),
+        routeCode
+      );
+      console.log(
+        `Generated Route: ${routesOutputDir}/${camelCaseTableName}Routes.js`
+      );
+
+      // Thêm tên file route đã sinh vào mảng (dùng cho index.js)
+      generatedRouteFiles.push(`${camelCaseTableName}Routes`);
+
+      console.log(`\nCode generation completed for table: ${tableName}`);
+    }
+    ```
+
+5.  **Cập nhật hàm `generateIndexRouteFile`:**
+    Tương tự, thay đổi cách nó xác định `routesOutputDir` để sử dụng `getGeneratedCodeSrcDir()`.
+
+    ```javascript
+    // Hàm để sinh ra file index.js tổng hợp các routes
+    async function generateIndexRouteFile() {
+      const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes"); // Sử dụng getGeneratedCodeSrcDir()
+      const indexPath = path.join(routesOutputDir, "index.js");
+
+      let indexContent = `const express = require('express');\nconst router = express.Router();\n\n`;
+
+      generatedRouteFiles.forEach(routeFile => {
+        const routerVariableName = _.camelCase(routeFile.replace('Routes', '')) + 'Router';
+        indexContent += `const ${routerVariableName} = require('./${routeFile}');\n`;
+        indexContent += `router.use('/${_.kebabCase(routeFile.replace('Routes', ''))}', ${routerVariableName});\n\n`;
+      });
+
+      indexContent += `module.exports = router;\n`;
+
+      indexContent = addRandomComment(indexContent);
+      fs.writeFileSync(indexPath, indexContent);
+      console.log(`Generated Index Route File: ${indexPath}`);
+    }
+    ```
+
+6.  **Đổi tên và điều chỉnh hàm `generateWebsiteCode`:**
+    Đổi tên hàm `generateWebsiteCode` thành `generateWebsiteCodeInternal` và loại bỏ logic xóa thư mục `generated_code` (vì `generateFullBackendProject` sẽ đảm nhiệm việc xóa thư mục project gốc).
+
+    ```javascript
+    // Hàm nội bộ để sinh code cho các models, controllers, routes của một loại website
+    async function generateWebsiteCodeInternal(websiteType) {
+      generatedRouteFiles.length = 0; // Reset mảng cho mỗi lần sinh website
+
+      let websiteDefinition;
+      try {
+        const definitionPath = path.join(DEFINITIONS_DIR, `${websiteType}Website.js`);
+        websiteDefinition = require(definitionPath);
+        console.log(`\n--- Generating core backend code for ${websiteDefinition.name} website ---`);
+      } catch (error) {
+        console.error(`Error: Could not load definition for website type '${websiteType}'.`);
+        throw new Error(`Invalid website type: ${websiteType}`);
+      }
+
+      // Duyệt qua từng bảng trong định nghĩa website và sinh code
+      for (const table of websiteDefinition.tables) {
+        await generateCode(table);
+      }
+
+      // Sau khi tất cả các bảng đã được sinh code, tạo file index.js cho routes
+      await generateIndexRouteFile();
+
+      console.log(`\nCore backend code generation for ${websiteDefinition.name} completed.`);
+    }
+    ```
+
+7.  **Thêm hàm `generateFullBackendProject` mới:**
+    Đây là hàm chính sẽ được gọi từ API endpoint.
+
+    ```javascript
+    // --- HÀM MỚI CHÍNH ĐỂ SINH TOÀN BỘ PROJECT BACKEND ---
+    async function generateFullBackendProject(websiteType, projectName) {
+      if (!projectName) {
+        throw new Error("Project name is required.");
+      }
+
+      // Thiết lập đường dẫn gốc cho project đang được sinh ra
+      currentProjectRoot = path.join(GENERATED_PROJECTS_DIR, projectName);
+
+      // Xóa project cũ nếu tồn tại để đảm bảo một bản sinh mới sạch
+      if (fs.existsSync(currentProjectRoot)) {
+        fs.rmSync(currentProjectRoot, { recursive: true, force: true });
+        console.log(`Cleaned up previous project in: ${currentProjectRoot}`);
+      }
+
+      // Tạo thư mục gốc của project và thư mục src bên trong
+      fs.mkdirSync(currentProjectRoot, { recursive: true });
+      fs.mkdirSync(getGeneratedCodeSrcDir(), { recursive: true }); // Tạo thư mục 'src'
+
+      // 1. Sinh file .env
+      const envTemplatePath = path.join(TEMPLATES_DIR, 'env.ejs');
+      let envContent = await ejs.renderFile(envTemplatePath, { projectName });
+      envContent = addRandomComment(envContent);
+      fs.writeFileSync(path.join(currentProjectRoot, '.env'), envContent);
+      console.log(`Generated .env: ${path.join(currentProjectRoot, '.env')}`);
+
+      // 2. Sinh file package.json
+      const packageJsonTemplatePath = path.join(TEMPLATES_DIR, 'package.json.ejs');
+      let packageJsonContent = await ejs.renderFile(packageJsonTemplatePath, { projectName, websiteType });
+      packageJsonContent = addRandomComment(packageJsonContent);
+      fs.writeFileSync(path.join(currentProjectRoot, 'package.json'), packageJsonContent);
+      console.log(`Generated package.json: ${path.join(currentProjectRoot, 'package.json')}`);
+
+      // 3. Sinh file app.js (cho project được sinh ra)
+      const appJsTemplatePath = path.join(TEMPLATES_DIR, 'app.js.ejs');
+      let appJsContent = await ejs.renderFile(appJsTemplatePath, {});
+      appJsContent = addRandomComment(appJsContent);
+      fs.writeFileSync(path.join(getGeneratedCodeSrcDir(), 'app.js'), appJsContent);
+      console.log(`Generated app.js: ${path.join(getGeneratedCodeSrcDir(), 'app.js')}`);
+
+      // 4. Sinh file server.js (cho project được sinh ra)
+      const serverJsTemplatePath = path.join(TEMPLATES_DIR, 'server.js.ejs');
+      let serverJsContent = await ejs.renderFile(serverJsTemplatePath, {});
+      serverJsContent = addRandomComment(serverJsContent);
+      fs.writeFileSync(path.join(getGeneratedCodeSrcDir(), 'server.js'), serverJsContent);
+      console.log(`Generated server.js: ${path.join(getGeneratedCodeSrcDir(), 'server.js')}`);
+
+      // 5. Gọi hàm sinh code core backend (models, controllers, routes)
+      await generateWebsiteCodeInternal(websiteType);
+
+      console.log(`\nFull backend project '${projectName}' generated successfully in ${currentProjectRoot}`);
+      return { success: true, projectName, outputDir: currentProjectRoot };
+    }
+    ```
+
+8.  **Cập nhật `module.exports`:**
+
+    ```javascript
+    module.exports = {
+      generateCode, // Vẫn export nếu bạn cần dùng riêng lẻ
+      generateIndexRouteFile, // Vẫn export nếu bạn cần dùng riêng lẻ
+      generateFullBackendProject, // Hàm chính mới
+      GENERATED_PROJECTS_DIR // Export đường dẫn gốc của các project sinh ra
+    };
+    ```
+
+---
+
+Bây giờ, file `gencode.controller.js` của bạn đã được cập nhật để hỗ trợ việc sinh ra một project backend hoàn chỉnh.
+
+Bước tiếp theo là **tạo các template mới** cho `.env`, `package.json`, `app.js`, và `server.js` trong thư mục `gen_templates`.
+
+Bạn đã cập nhật xong file `gencode.controller.js` chưa?

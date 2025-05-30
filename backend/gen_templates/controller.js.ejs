@@ -1,10 +1,38 @@
 const <%= _.capitalize(_.camelCase(tableName)) %> = require('../models/<%= _.camelCase(tableName) %>');
 
-// Lấy tất cả <%= _.capitalize(_.camelCase(tableName)) %>s
+// Lấy tất cả <%= _.capitalize(_.camelCase(tableName)) %>s với phân trang và tìm kiếm
 exports.getAll<%= _.capitalize(_.camelCase(tableName)) %>s = async (req, res) => {
   try {
-    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.find();
-    res.status(200).json(data);
+    const { page = 1, limit = 10, search } = req.query; // Lấy page, limit và search từ query params
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = {}; // Đối tượng query ban đầu rỗng
+
+    // Nếu có tham số 'search', thêm điều kiện tìm kiếm vào query
+    if (search) {
+      // Tìm kiếm không phân biệt chữ hoa, chữ thường
+      // Áp dụng cho trường 'name' hoặc 'title' tùy thuộc vào schema của bạn
+      // Đảm bảo schema của bạn có trường 'name' hoặc 'title' để tìm kiếm
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: 'i' } }
+      ];
+      // Bạn có thể tùy chỉnh các trường tìm kiếm ở đây (ví dụ: { description: { $regex: search, $options: 'i' } })
+    }
+
+    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.find(query)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalItems = await <%= _.capitalize(_.camelCase(tableName)) %>.countDocuments(query); // Đếm tổng số lượng với điều kiện tìm kiếm
+    const totalPages = Math.ceil(totalItems / parseInt(limit));
+
+    res.status(200).json({
+      data,
+      currentPage: parseInt(page),
+      totalPages,
+      totalItems,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -13,6 +13,29 @@ const GENERATED_CODE_ROOT_DIR = path.join(
 const TEMPLATES_DIR = path.join(__dirname, "../gen_templates");
 // Một mảng để lưu trữ tên các route file đã sinh ra
 const generatedRouteFiles = [];
+// Đường dẫn đến thư mục chứa các định nghĩa website mới
+const DEFINITIONS_DIR = path.join(
+  __dirname,
+  "..", // Ra khỏi 'controllers'
+  "definitions" // Vào thư mục 'definitions'
+);
+// Hàm tạo chuỗi ngẫu nhiên cho comment (để code sinh ra "khác" nhau mỗi lần)
+function generateRandomString(length) {
+  const characters =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+// Hàm thêm comment ngẫu nhiên vào đầu file
+function addRandomComment(code) {
+  const timestamp = new Date().toISOString();
+  const randomId = generateRandomString(8);
+  return `/* Generated on: ${timestamp} - ID: ${randomId} */\n\n` + code;
+}
 
 // Hàm để sinh mã dựa trên định nghĩa bảng
 async function generateCode(tableDefinition) {
@@ -44,6 +67,7 @@ async function generateCode(tableDefinition) {
   // 1. Sinh Model
   const modelTemplatePath = path.join(TEMPLATES_DIR, "model.js.ejs");
   let modelCode = await ejs.renderFile(modelTemplatePath, templateData);
+  modelCode = addRandomComment(modelCode);
   fs.writeFileSync(
     path.join(modelsOutputDir, `${camelCaseTableName}.js`),
     modelCode
@@ -56,6 +80,7 @@ async function generateCode(tableDefinition) {
     controllerTemplatePath,
     templateData
   );
+  controllerCode = addRandomComment(controllerCode);
   fs.writeFileSync(
     path.join(controllersOutputDir, `${camelCaseTableName}Controller.js`),
     controllerCode
@@ -67,6 +92,7 @@ async function generateCode(tableDefinition) {
   // 3. Sinh Route
   const routeTemplatePath = path.join(TEMPLATES_DIR, "route.js.ejs");
   let routeCode = await ejs.renderFile(routeTemplatePath, templateData);
+  routeCode = addRandomComment(routeCode);
   fs.writeFileSync(
     path.join(routesOutputDir, `${camelCaseTableName}Routes.js`),
     routeCode
@@ -102,6 +128,56 @@ async function generateIndexRouteFile() {
   console.log(`Generated Index Route File: ${indexPath}`);
 }
 
+// --- HÀM MỚI ĐỂ SINH CODE THEO LOẠI WEBSITE ---
+async function generateWebsiteCode(websiteType) {
+  // Xóa tất cả các route đã sinh ra trước đó để chuẩn bị cho lần sinh mới
+  generatedRouteFiles.length = 0; // Reset mảng
+
+  let websiteDefinition;
+  try {
+    const definitionPath = path.join(
+      DEFINITIONS_DIR,
+      `${websiteType}Website.js`
+    );
+    websiteDefinition = require(definitionPath);
+    console.log(
+      `\n--- Generating code for ${websiteDefinition.name} website ---`
+    );
+  } catch (error) {
+    console.error(
+      `Error: Could not load definition for website type '${websiteType}'.`
+    );
+    throw new Error(`Invalid website type: ${websiteType}`);
+  }
+
+  // Xóa thư mục generated_code trước khi sinh mới để tránh file rác
+  // Cần cẩn thận khi sử dụng, đảm bảo bạn không xóa nhầm thư mục quan trọng!
+  if (fs.existsSync(GENERATED_CODE_ROOT_DIR)) {
+    fs.rmSync(GENERATED_CODE_ROOT_DIR, { recursive: true, force: true });
+    console.log(
+      `Cleaned up previous generated code in: ${GENERATED_CODE_ROOT_DIR}`
+    );
+  }
+
+  // Duyệt qua từng bảng trong định nghĩa website và sinh code
+  for (const table of websiteDefinition.tables) {
+    await generateCode(table);
+  }
+
+  // Sau khi tất cả các bảng đã được sinh code, tạo file index.js cho routes
+  await generateIndexRouteFile();
+
+  console.log(
+    `\nCode generation for ${websiteDefinition.name} completed successfully.`
+  );
+  return {
+    success: true,
+    websiteType: websiteDefinition.type,
+    outputDir: GENERATED_CODE_ROOT_DIR,
+  };
+}
+
+// Create code by table
 exports.runTests = async (req, res) => {
   const ejs = require("ejs");
   console.log(typeof ejs.renderFile);
@@ -138,4 +214,8 @@ exports.runTests = async (req, res) => {
   await generateIndexRouteFile();
 
   console.log('\nTests completed. Check the "generated_code" folder.');
+};
+// Create code by type
+exports.runTestType = async (req, res) => {
+  generateWebsiteCode("ecommerce");
 };
