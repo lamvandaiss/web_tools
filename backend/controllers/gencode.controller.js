@@ -3,11 +3,22 @@ const path = require("path");
 const ejs = require("ejs");
 const _ = require("lodash");
 
-const GENERATED_CODE_ROOT_DIR = path.join(
+// Đường dẫn gốc nơi tất cả các project backend được sinh ra sẽ nằm
+const GENERATED_PROJECTS_DIR = path.join(
   __dirname,
   "..", // Ra khỏi thư mục 'controllers'
-  "generated_code" // Vào thư mục 'generated_code'
+  "generated_projects" // Vào thư mục 'generated_projects'
 );
+// Biến này sẽ giữ đường dẫn đến thư mục gốc của project đang được sinh ra
+let currentProjectRoot = "";
+// Hàm trả về đường dẫn đến thư mục 'src' bên trong project đang được sinh ra
+const getGeneratedCodeSrcDir = () => path.join(currentProjectRoot, "src");
+
+// const GENERATED_CODE_ROOT_DIR = path.join(
+//   __dirname,
+//   "..", // Ra khỏi thư mục 'controllers'
+//   "generated_code" // Vào thư mục 'generated_code'
+// );
 
 // Đường dẫn đến thư mục chứa các template (model.js.ejs, controller.js.ejs, etc.)
 const TEMPLATES_DIR = path.join(__dirname, "../gen_templates");
@@ -43,13 +54,13 @@ async function generateCode(tableDefinition) {
   const capitalizedTableName = _.capitalize(_.camelCase(tableName));
   const camelCaseTableName = _.camelCase(tableName);
 
-  // Tạo các thư mục con trong generated_code nếu chưa tồn tại
-  const modelsOutputDir = path.join(GENERATED_CODE_ROOT_DIR, "models");
+  // Các thư mục con sẽ được tạo bên trong thư mục 'src' của project được sinh ra
+  const modelsOutputDir = path.join(getGeneratedCodeSrcDir(), "models");
   const controllersOutputDir = path.join(
-    GENERATED_CODE_ROOT_DIR,
+    getGeneratedCodeSrcDir(),
     "controllers"
   );
-  const routesOutputDir = path.join(GENERATED_CODE_ROOT_DIR, "routes");
+  const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes");
 
   [modelsOutputDir, controllersOutputDir, routesOutputDir].forEach((dir) => {
     if (!fs.existsSync(dir)) {
@@ -109,26 +120,26 @@ async function generateCode(tableDefinition) {
 
 // Hàm để sinh ra file index.js tổng hợp các routes
 async function generateIndexRouteFile() {
-  const routesOutputDir = path.join(GENERATED_CODE_ROOT_DIR, "routes");
+  const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes"); // Sử dụng getGeneratedCodeSrcDir()
   const indexPath = path.join(routesOutputDir, "index.js");
 
   let indexContent = `const express = require('express');\nconst router = express.Router();\n\n`;
 
   generatedRouteFiles.forEach((routeFile) => {
-    // Đảm bảo tên biến cho router là duy nhất và dễ đọc
     const routerVariableName =
       _.camelCase(routeFile.replace("Routes", "")) + "Router";
-    indexContent += `const ${routerVariableName} = require('./${routeFile}');\n`;
+    indexContent += `const <span class="math-inline">\{routerVariableName\} \= require\('\./</span>{routeFile}');\n`;
     indexContent += `router.use('/${_.kebabCase(routeFile.replace("Routes", ""))}', ${routerVariableName});\n\n`;
   });
 
   indexContent += `module.exports = router;\n`;
 
+  indexContent = addRandomComment(indexContent);
   fs.writeFileSync(indexPath, indexContent);
   console.log(`Generated Index Route File: ${indexPath}`);
 }
 
-// --- HÀM MỚI ĐỂ SINH CODE THEO LOẠI WEBSITE ---
+// --- HÀM ĐỂ SINH CODE THEO LOẠI WEBSITE ---
 async function generateWebsiteCode(websiteType) {
   // Xóa tất cả các route đã sinh ra trước đó để chuẩn bị cho lần sinh mới
   generatedRouteFiles.length = 0; // Reset mảng
@@ -177,6 +188,112 @@ async function generateWebsiteCode(websiteType) {
   };
 }
 
+// Hàm nội bộ để sinh code cho các models, controllers, routes của một loại website
+async function generateWebsiteCodeInternal(websiteType) {
+  generatedRouteFiles.length = 0; // Reset mảng cho mỗi lần sinh website
+
+  let websiteDefinition;
+  try {
+    const definitionPath = path.join(
+      DEFINITIONS_DIR,
+      `${websiteType}Website.js`
+    );
+    websiteDefinition = require(definitionPath);
+    console.log(
+      `\n--- Generating core backend code for ${websiteDefinition.name} website ---`
+    );
+  } catch (error) {
+    console.error(
+      `Error: Could not load definition for website type '${websiteType}'.`
+    );
+    throw new Error(`Invalid website type: ${websiteType}`);
+  }
+
+  // Duyệt qua từng bảng trong định nghĩa website và sinh code
+  for (const table of websiteDefinition.tables) {
+    await generateCode(table);
+  }
+
+  // Sau khi tất cả các bảng đã được sinh code, tạo file index.js cho routes
+  await generateIndexRouteFile();
+
+  console.log(
+    `\nCore backend code generation for ${websiteDefinition.name} completed.`
+  );
+}
+
+// --- HÀM MỚI CHÍNH ĐỂ SINH TOÀN BỘ PROJECT BACKEND ---
+async function generateFullBackendProject(websiteType, projectName) {
+  if (!projectName) {
+    throw new Error("Project name is required.");
+  }
+
+  // Thiết lập đường dẫn gốc cho project đang được sinh ra
+  currentProjectRoot = path.join(GENERATED_PROJECTS_DIR, projectName);
+
+  // Xóa project cũ nếu tồn tại để đảm bảo một bản sinh mới sạch
+  if (fs.existsSync(currentProjectRoot)) {
+    fs.rmSync(currentProjectRoot, { recursive: true, force: true });
+    console.log(`Cleaned up previous project in: ${currentProjectRoot}`);
+  }
+
+  // Tạo thư mục gốc của project và thư mục src bên trong
+  fs.mkdirSync(currentProjectRoot, { recursive: true });
+  fs.mkdirSync(getGeneratedCodeSrcDir(), { recursive: true }); // Tạo thư mục 'src'
+
+  // 1. Sinh file .env
+  const envTemplatePath = path.join(TEMPLATES_DIR, "env.ejs");
+  let envContent = await ejs.renderFile(envTemplatePath, { projectName });
+  envContent = addRandomComment(envContent);
+  fs.writeFileSync(path.join(currentProjectRoot, ".env"), envContent);
+  console.log(`Generated .env: ${path.join(currentProjectRoot, ".env")}`);
+
+  // 2. Sinh file package.json
+  const packageJsonTemplatePath = path.join(TEMPLATES_DIR, "package.json.ejs");
+  let packageJsonContent = await ejs.renderFile(packageJsonTemplatePath, {
+    projectName,
+    websiteType,
+    _: _,
+  });
+
+  fs.writeFileSync(
+    path.join(currentProjectRoot, "package.json"),
+    packageJsonContent
+  );
+  console.log(
+    `Generated package.json: ${path.join(currentProjectRoot, "package.json")}`
+  );
+
+  // 3. Sinh file app.js (cho project được sinh ra)
+  const appJsTemplatePath = path.join(TEMPLATES_DIR, "app.js.ejs");
+  let appJsContent = await ejs.renderFile(appJsTemplatePath, {});
+  appJsContent = addRandomComment(appJsContent);
+  fs.writeFileSync(path.join(getGeneratedCodeSrcDir(), "app.js"), appJsContent);
+  console.log(
+    `Generated app.js: ${path.join(getGeneratedCodeSrcDir(), "app.js")}`
+  );
+
+  // 4. Sinh file server.js (cho project được sinh ra)
+  const serverJsTemplatePath = path.join(TEMPLATES_DIR, "server.js.ejs");
+  let serverJsContent = await ejs.renderFile(serverJsTemplatePath, {});
+  serverJsContent = addRandomComment(serverJsContent);
+  fs.writeFileSync(
+    path.join(getGeneratedCodeSrcDir(), "server.js"),
+    serverJsContent
+  );
+  console.log(
+    `Generated server.js: ${path.join(getGeneratedCodeSrcDir(), "server.js")}`
+  );
+
+  // 5. Gọi hàm sinh code core backend (models, controllers, routes)
+  await generateWebsiteCodeInternal(websiteType);
+
+  console.log(
+    `\nFull backend project '${projectName}' generated successfully in ${currentProjectRoot}`
+  );
+  return { success: true, projectName, outputDir: currentProjectRoot };
+}
+
 // Create code by table
 exports.runTests = async (req, res) => {
   const ejs = require("ejs");
@@ -218,4 +335,39 @@ exports.runTests = async (req, res) => {
 // Create code by type
 exports.runTestType = async (req, res) => {
   generateWebsiteCode("ecommerce");
+};
+// Create code by type
+exports.runBE = async (req, res) => {
+  // const { websiteType, projectName } = req.body;
+  const { websiteType, projectName } = {
+    websiteType: "ecommerce",
+    projectName: "BenTre",
+  };
+
+  if (!websiteType || !projectName) {
+    return res.status(400).json({
+      message:
+        "Both websiteType and projectName are required in the request body.",
+    });
+  }
+
+  try {
+    const result = await generateFullBackendProject(websiteType, projectName);
+    res.status(200).json({
+      message: `Full backend project '${result.projectName}' generated successfully!`,
+      outputDirectory: result.outputDir,
+      instructions: [
+        `Go to the generated project directory: cd ${result.outputDir}`,
+        `Install dependencies: npm install`,
+        `Start the server: npm start (or npm run dev for development with nodemon)`,
+      ],
+      details: result,
+    });
+  } catch (error) {
+    console.error("Error during full backend project generation:", error);
+    res.status(500).json({
+      message: "Failed to generate full backend project.",
+      error: error.message,
+    });
+  }
 };

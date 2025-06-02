@@ -1,4 +1,5 @@
 output/
 node_modules/
 generated_code/
+generated_projects/
 .env
