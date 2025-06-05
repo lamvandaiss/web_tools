@@ -128,7 +128,7 @@ async function generateIndexRouteFile() {
   generatedRouteFiles.forEach((routeFile) => {
     const routerVariableName =
       _.camelCase(routeFile.replace("Routes", "")) + "Router";
-    indexContent += `const <span class="math-inline">\{routerVariableName\} \= require\('\./</span>{routeFile}');\n`;
+    indexContent += `const ${routerVariableName} = require('./${routeFile}');\n`;
     indexContent += `router.use('/${_.kebabCase(routeFile.replace("Routes", ""))}', ${routerVariableName});\n\n`;
   });
 

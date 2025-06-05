@@ -14,7 +14,7 @@ module.exports = {
         {
           name: "role",
           type: "String",
-          default: "user",
+          default: "'user'",
           enum: ["user", "admin"],
         },
         { name: "shippingAddress", type: "Object" }, // Có thể là { street: String, city: String, ... }
@@ -51,7 +51,7 @@ module.exports = {
         {
           name: "status",
           type: "String",
-          default: "pending",
+          default: "'pending'",
           enum: ["pending", "processing", "shipped", "delivered", "cancelled"],
         },
         { name: "orderDate", type: "Date", default: "Date.now" },

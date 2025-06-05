@@ -1,15 +1,25 @@
+<%# F:\web_tools\backend\gen_templates\model.js.ejs - Tối ưu hóa hoàn toàn khoảng trắng #%>
+
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-const <%= _.camelCase(tableName) %>Schema = new mongoose.Schema({
-  <% fields.forEach(field => { %>
-    <%= field.name %>: {
-      type: <%= field.type %>,
-      <% if (field.required) { %>required: true,<% } %>
-      <% if (field.unique) { %>unique: true,<% } %>
-      // Thêm các thuộc tính khác của Mongoose Schema tại đây nếu cần
-      // Ví dụ: minlength, maxlength, enum, default, v.v.
-    },
-  <% }); %>
-}, { timestamps: true });
+const <%= capitalizedTableName %>Schema = new Schema({
+<% fields.forEach((field, index) => { -%>
+  <%= field.name %>: {
+    type: <%= field.type === 'ObjectId' ? 'Schema.Types.ObjectId' : field.type %>,<%- field.ref ? `
+    ref: '${field.ref}',` : '' %><%- field.required ? `
+    required: true,` : '' %><%- field.unique ? `
+    unique: true,` : '' %><%- field.default ? `
+    default: ${field.default},` : '' %><%- field.min ? `
+    min: ${field.min},` : '' %><%- field.max ? `
+    max: ${field.max},` : '' %><%- field.enum && field.enum.length > 0 ? `
+    enum: [${field.enum.map(val => `'${val}'`).join(', ')}],` : '' %><%- field.of && field.of === 'Object' ? `
+    // Cần định nghĩa chi tiết hơn cho Array of Objects nếu bạn có cấu trúc phức tạp` : '' %><%- field.of && field.of !== 'Object' ? `
+    of: ${field.of === 'ObjectId' ? 'Schema.Types.ObjectId' : field.of},` : '' %>
+  }<%- index < fields.length - 1 ? ',' : '' %>
+<% }); -%>
+}, {
+  timestamps: true
+});
 
-module.exports = mongoose.model('<%= _.capitalize(_.camelCase(tableName)) %>', <%= _.camelCase(tableName) %>Schema);
+module.exports = mongoose.model('<%= capitalizedTableName %>', <%= capitalizedTableName %>Schema);
