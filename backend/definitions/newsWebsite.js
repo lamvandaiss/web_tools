@@ -14,7 +14,7 @@ module.exports = {
         {
           name: "role",
           type: "String",
-          default: "user",
+          default: "'user'",
           enum: ["user", "admin"],
         }, // Thêm trường role
         { name: "createdAt", type: "Date", default: "Date.now" },
