@@ -227,7 +227,6 @@ async function generateFullBackendProject(websiteType, projectName) {
   if (!projectName) {
     throw new Error("Project name is required.");
   }
-
   // Thiết lập đường dẫn gốc cho project đang được sinh ra
   currentProjectRoot = path.join(GENERATED_PROJECTS_DIR, projectName);
 
@@ -293,7 +292,18 @@ async function generateFullBackendProject(websiteType, projectName) {
   );
   return { success: true, projectName, outputDir: currentProjectRoot };
 }
-
+function toSlug(text) {
+  return text
+    .replace(/đ/g, "d") // thay 'đ' thành 'd'
+    .replace(/Đ/g, "d")
+    .normalize("NFD") // tách các dấu ra khỏi chữ cái
+    .replace(/[\u0300-\u036f]/g, "") // xóa các dấu
+    .toLowerCase() // chuyển về chữ thường
+    .trim() // xóa khoảng trắng đầu/cuối
+    .replace(/\s+/g, "_") // thay khoảng trắng bằng dấu gạch nối
+    .replace(/[^a-z0-9\_]/g, "") // xóa ký tự đặc biệt (giữ lại a-z, 0-9, và dấu '_')
+    .replace(/\-{2,}/g, "_"); // thay nhiều dấu '-' liên tiếp thành 1 dấu
+}
 // Create code by table
 exports.runTests = async (req, res) => {
   const ejs = require("ejs");
@@ -338,18 +348,15 @@ exports.runTestType = async (req, res) => {
 };
 // Create code by type
 exports.runBE = async (req, res) => {
-  // const { websiteType, projectName } = req.body;
-  const { websiteType, projectName } = {
-    websiteType: "ecommerce",
-    projectName: "BenTre",
-  };
-
+  let { websiteType, projectName } = req.body;
   if (!websiteType || !projectName) {
     return res.status(400).json({
       message:
         "Both websiteType and projectName are required in the request body.",
     });
   }
+
+  projectName = toSlug(projectName);
 
   try {
     const result = await generateFullBackendProject(websiteType, projectName);

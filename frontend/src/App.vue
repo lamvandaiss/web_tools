@@ -1,10 +1,11 @@
-<script setup>
-import HelloWorld from "./components/HelloWorld.vue";
-import SnippetManager from "./components/SnippetManager.vue";
-</script>
-
 <template>
-  <SnippetManager />
+  <div>
+    <nav>
+      <router-link to="/snippets">Snippet Manager</router-link>
+      <router-link to="/create-project">Create Project</router-link>
+    </nav>
+    <router-view />
+  </div>
 </template>
 
 <style scoped>
@@ -19,5 +20,9 @@ import SnippetManager from "./components/SnippetManager.vue";
 }
 .logo.vue:hover {
   filter: drop-shadow(0 0 2em #42b883aa);
+}
+nav {
+  display: flex;
+  column-gap: 20px;
 }
 </style>
