@@ -1,25 +1,21 @@
-<%# F:\web_tools\backend\gen_templates\model.js.ejs - Tối ưu hóa hoàn toàn khoảng trắng #%>
-
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-const <%= capitalizedTableName %>Schema = new Schema({
-<% fields.forEach((field, index) => { -%>
+const <%= tableName %>Schema = new Schema({
+<% fields.forEach(function(field, index) { -%>
   <%= field.name %>: {
-    type: <%= field.type === 'ObjectId' ? 'Schema.Types.ObjectId' : field.type %>,<%- field.ref ? `
-    ref: '${field.ref}',` : '' %><%- field.required ? `
-    required: true,` : '' %><%- field.unique ? `
-    unique: true,` : '' %><%- field.default ? `
-    default: ${field.default},` : '' %><%- field.min ? `
-    min: ${field.min},` : '' %><%- field.max ? `
-    max: ${field.max},` : '' %><%- field.enum && field.enum.length > 0 ? `
-    enum: [${field.enum.map(val => `'${val}'`).join(', ')}],` : '' %><%- field.of && field.of === 'Object' ? `
-    // Cần định nghĩa chi tiết hơn cho Array of Objects nếu bạn có cấu trúc phức tạp` : '' %><%- field.of && field.of !== 'Object' ? `
-    of: ${field.of === 'ObjectId' ? 'Schema.Types.ObjectId' : field.of},` : '' %>
-  }<%- index < fields.length - 1 ? ',' : '' %>
+    type: <% if (field.type === 'ObjectId') { %>Schema.Types.ObjectId<% } else { %><%= field.type %><% } %><%
+    if (field.ref) { %>, ref: '<%= field.ref %>'<% }
+    if (field.required) { %>, required: true<% }
+    if (field.unique) { %>, unique: true<% }
+    if (typeof field.default !== 'undefined') { %>, default: <%- field.default %><% }
+    if (field.enum && field.enum.length > 0) { %>, enum: [<%- field.enum.map(item => `'${item}'`).join(', ') %>]<% }
+    if (field.min) { %>, min: <%= field.min %><% }
+    if (field.max) { %>, max: <%= field.max %><% } %>
+  }<%= (index < fields.length - 1) ? ',' : '' %>
 <% }); -%>
 }, {
   timestamps: true
 });
 
-module.exports = mongoose.model('<%= capitalizedTableName %>', <%= capitalizedTableName %>Schema);
+module.exports = mongoose.model('<%= capitalizedTableName %>', <%= tableName %>Schema);

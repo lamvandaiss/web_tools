@@ -23,7 +23,7 @@ module.exports = [
       { name: "description", type: "String" },
       { name: "user", type: "ObjectId", ref: "User", required: true },
       { name: "isPublic", type: "Boolean", default: true },
-      { name: "coverImage", type: "String" }, // URL của ảnh bìa
+      { name: "coverImage", type: "String" },
     ],
   },
   {
@@ -31,15 +31,15 @@ module.exports = [
     fields: [
       { name: "title", type: "String" },
       { name: "description", type: "String" },
-      { name: "url", type: "String", required: true }, // URL của ảnh
-      { name: "album", type: "ObjectId", ref: "Album" }, // Ảnh có thể thuộc album
-      { name: "user", type: "ObjectId", ref: "User", required: true }, // Ai upload ảnh
+      { name: "url", type: "String", required: true },
+      { name: "album", type: "ObjectId", ref: "Album" },
+      { name: "user", type: "ObjectId", ref: "User", required: true },
       { name: "tags", type: "Array", of: "String" },
-      { name: "metadata", type: "Object" }, // EXIF data, v.v.
+      { name: "metadata", type: "Object" },
     ],
   },
   {
-    tableName: "Comment", // Cho phép comment trên ảnh
+    tableName: "Comment",
     fields: [
       { name: "content", type: "String", required: true },
       { name: "author", type: "ObjectId", ref: "User", required: true },

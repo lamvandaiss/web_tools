@@ -1,37 +1,48 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-require('dotenv').config(); // Load biến môi trường từ .env
+const helmet = require('helmet');
+require('dotenv').config();
+const mongoose = require('mongoose');
+
+const connectDB  = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log('✅ MongoDB connected successfully!');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+    process.exit(1); // Exit on failure
+  }
+};
+
+const routes = require('./routes'); // Import generated routes
 
 const app = express();
 
-// Kết nối MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB connected successfully!'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1); // Thoát ứng dụng nếu không kết nối được DB
-  });
+// Connect to MongoDB
+connectDB();
 
 // Middleware
-app.use(express.json()); // Để xử lý body JSON từ request
-app.use(express.urlencoded({ extended: true })); // Để xử lý URL-encoded data
-app.use(cors()); // Cho phép cross-origin requests
+app.use(helmet()); // Add security headers
+app.use(cors()); // Enable CORS
+app.use(express.json()); // Parse incoming JSON requests
+app.use(express.urlencoded({ extended: true })); // Parse URL-encoded request bodies
 
-// Import và sử dụng các routes đã được sinh ra
-// Đường dẫn này là tương đối từ app.js (trong src) đến routes/index.js (trong src)
-const generatedRoutes = require('./routes');
-app.use('/api', generatedRoutes); // Gắn tất cả các routes sinh ra dưới tiền tố /api
+// Use generated routes under /api prefix
+app.use('/api', routes);
 
-// Route cơ bản
+// Basic root route
 app.get('/', (req, res) => {
   res.send('Welcome to your generated backend API!');
 });
 
-// Xử lý lỗi (Error Handling Middleware)
+// Global error handler middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).send('Something broke!');
+  console.error('❌ Error:', err.message);
+  res.status(err.status || 500).json({
+    error: {
+      message: err.message || 'Internal Server Error',
+    },
+  });
 });
 
 module.exports = app;

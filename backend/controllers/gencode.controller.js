@@ -14,12 +14,6 @@ let currentProjectRoot = "";
 // Hàm trả về đường dẫn đến thư mục 'src' bên trong project đang được sinh ra
 const getGeneratedCodeSrcDir = () => path.join(currentProjectRoot, "src");
 
-// const GENERATED_CODE_ROOT_DIR = path.join(
-//   __dirname,
-//   "..", // Ra khỏi thư mục 'controllers'
-//   "generated_code" // Vào thư mục 'generated_code'
-// );
-
 // Đường dẫn đến thư mục chứa các template (model.js.ejs, controller.js.ejs, etc.)
 const TEMPLATES_DIR = path.join(__dirname, "../gen_templates");
 // Một mảng để lưu trữ tên các route file đã sinh ra
@@ -114,7 +108,6 @@ async function generateCode(tableDefinition) {
 
   // Thêm tên file route đã sinh vào mảng
   generatedRouteFiles.push(`${camelCaseTableName}Routes`);
-
   console.log(`\nCode generation completed for table: ${tableName}`);
 }
 
@@ -122,7 +115,6 @@ async function generateCode(tableDefinition) {
 async function generateIndexRouteFile() {
   const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes"); // Sử dụng getGeneratedCodeSrcDir()
   const indexPath = path.join(routesOutputDir, "index.js");
-
   let indexContent = `const express = require('express');\nconst router = express.Router();\n\n`;
 
   generatedRouteFiles.forEach((routeFile) => {
@@ -139,86 +131,70 @@ async function generateIndexRouteFile() {
   console.log(`Generated Index Route File: ${indexPath}`);
 }
 
-// --- HÀM ĐỂ SINH CODE THEO LOẠI WEBSITE ---
-async function generateWebsiteCode(websiteType) {
-  // Xóa tất cả các route đã sinh ra trước đó để chuẩn bị cho lần sinh mới
-  generatedRouteFiles.length = 0; // Reset mảng
-
-  let websiteDefinition;
-  try {
-    const definitionPath = path.join(
-      DEFINITIONS_DIR,
-      `${websiteType}Website.js`
-    );
-    websiteDefinition = require(definitionPath);
-    console.log(
-      `\n--- Generating code for ${websiteDefinition.name} website ---`
-    );
-  } catch (error) {
-    console.error(
-      `Error: Could not load definition for website type '${websiteType}'.`
-    );
-    throw new Error(`Invalid website type: ${websiteType}`);
-  }
-
-  // Xóa thư mục generated_code trước khi sinh mới để tránh file rác
-  // Cần cẩn thận khi sử dụng, đảm bảo bạn không xóa nhầm thư mục quan trọng!
-  if (fs.existsSync(GENERATED_CODE_ROOT_DIR)) {
-    fs.rmSync(GENERATED_CODE_ROOT_DIR, { recursive: true, force: true });
-    console.log(
-      `Cleaned up previous generated code in: ${GENERATED_CODE_ROOT_DIR}`
-    );
-  }
-
-  // Duyệt qua từng bảng trong định nghĩa website và sinh code
-  for (const table of websiteDefinition.tables) {
-    await generateCode(table);
-  }
-
-  // Sau khi tất cả các bảng đã được sinh code, tạo file index.js cho routes
-  await generateIndexRouteFile();
-
-  console.log(
-    `\nCode generation for ${websiteDefinition.name} completed successfully.`
-  );
-  return {
-    success: true,
-    websiteType: websiteDefinition.type,
-    outputDir: GENERATED_CODE_ROOT_DIR,
-  };
-}
-
 // Hàm nội bộ để sinh code cho các models, controllers, routes của một loại website
 async function generateWebsiteCodeInternal(websiteType) {
-  generatedRouteFiles.length = 0; // Reset mảng cho mỗi lần sinh website
+  // Đảm bảo reset mảng generatedRouteFiles cho mỗi lần sinh website mới
+  // Điều này rất quan trọng để index.js chỉ chứa các routes của project hiện tại.
+  generatedRouteFiles.length = 0;
 
-  let websiteDefinition;
+  let rawDefinition;
+  let tablesToProcess;
+  let definitionDisplayName = websiteType; // Mặc định dùng websiteType cho tên hiển thị
+
   try {
     const definitionPath = path.join(
       DEFINITIONS_DIR,
       `${websiteType}Website.js`
     );
-    websiteDefinition = require(definitionPath);
+    // Tải nội dung định nghĩa từ file
+    rawDefinition = require(definitionPath);
+
+    // Kiểm tra cấu trúc của định nghĩa:
+    if (Array.isArray(rawDefinition)) {
+      // Trường hợp 1: Định nghĩa là một mảng trực tiếp của các bảng (như các định nghĩa mới)
+      tablesToProcess = rawDefinition;
+    } else if (
+      typeof rawDefinition === "object" &&
+      rawDefinition !== null &&
+      Array.isArray(rawDefinition.tables)
+    ) {
+      // Trường hợp 2: Định nghĩa là một đối tượng có thuộc tính 'tables' là một mảng (như ecommerceWebsite.js)
+      tablesToProcess = rawDefinition.tables;
+      if (rawDefinition.name) {
+        definitionDisplayName = rawDefinition.name; // Lấy tên "đẹp" từ định nghĩa nếu có
+      }
+    } else {
+      // Trường hợp lỗi: Định dạng file định nghĩa không hợp lệ
+      throw new Error(
+        `Invalid definition format for '${websiteType}'. Expected an array or an object with a 'tables' array.`
+      );
+    }
+
     console.log(
-      `\n--- Generating core backend code for ${websiteDefinition.name} website ---`
+      `\n--- Generating core backend code for '${definitionDisplayName}' website ---`
     );
   } catch (error) {
     console.error(
-      `Error: Could not load definition for website type '${websiteType}'.`
+      `Error: Could not load or parse definition for website type '${websiteType}'.`,
+      error
     );
-    throw new Error(`Invalid website type: ${websiteType}`);
+    // Ném lỗi rõ ràng để hàm gọi bên ngoài có thể bắt được và báo về frontend
+    throw new Error(
+      `Invalid website type or definition format: ${websiteType}. Details: ${error.message}`
+    );
   }
 
-  // Duyệt qua từng bảng trong định nghĩa website và sinh code
-  for (const table of websiteDefinition.tables) {
+  // Duyệt qua từng bảng trong danh sách đã được xác định và sinh code
+  for (const table of tablesToProcess) {
     await generateCode(table);
   }
 
-  // Sau khi tất cả các bảng đã được sinh code, tạo file index.js cho routes
+  // Sau khi tất cả các models, controllers, và routes cho các bảng đã được sinh,
+  // tạo file index.js để tổng hợp các routes đó.
   await generateIndexRouteFile();
 
   console.log(
-    `\nCore backend code generation for ${websiteDefinition.name} completed.`
+    `\nCore backend code generation for '${definitionDisplayName}' completed.`
   );
 }
 
@@ -304,48 +280,7 @@ function toSlug(text) {
     .replace(/[^a-z0-9\_]/g, "") // xóa ký tự đặc biệt (giữ lại a-z, 0-9, và dấu '_')
     .replace(/\-{2,}/g, "_"); // thay nhiều dấu '-' liên tiếp thành 1 dấu
 }
-// Create code by table
-exports.runTests = async (req, res) => {
-  const ejs = require("ejs");
-  console.log(typeof ejs.renderFile);
-  // Định nghĩa mẫu bảng đầu vào
-  const userTableDefinition = {
-    tableName: "User",
-    fields: [
-      { name: "username", type: "String", required: true, unique: true },
-      { name: "email", type: "String", required: true, unique: true },
-      { name: "password", type: "String", required: true },
-      { name: "age", type: "Number", required: false },
-      { name: "isAdmin", type: "Boolean", default: false },
-      { name: "createdAt", type: "Date", default: "Date.now" }, // Lưu ý: default là string, cần xử lý trong model
-    ],
-  };
 
-  const productTableDefinition = {
-    tableName: "Product",
-    fields: [
-      { name: "name", type: "String", required: true },
-      { name: "price", type: "Number", required: true },
-      { name: "description", type: "String" },
-      { name: "category", type: "String" },
-      { name: "stock", type: "Number", default: 0 },
-    ],
-  };
-  console.log("--- Generating code for User table ---");
-  await generateCode(userTableDefinition);
-
-  console.log("\n--- Generating code for Product table ---");
-  await generateCode(productTableDefinition);
-
-  // Gọi hàm sinh file index.js sau khi tất cả routes đã được tạo
-  await generateIndexRouteFile();
-
-  console.log('\nTests completed. Check the "generated_code" folder.');
-};
-// Create code by type
-exports.runTestType = async (req, res) => {
-  generateWebsiteCode("ecommerce");
-};
 // Create code by type
 exports.runBE = async (req, res) => {
   let { websiteType, projectName } = req.body;

@@ -1,89 +1,127 @@
 const <%= _.capitalize(_.camelCase(tableName)) %> = require('../models/<%= _.camelCase(tableName) %>');
+const Model = <%= _.capitalize(_.camelCase(tableName)) %>;
 
-// Lấy tất cả <%= _.capitalize(_.camelCase(tableName)) %>s với phân trang và tìm kiếm
+// Define searchable fields (optional: limit to specific fields to improve performance)
+const searchableFields = [/* Add string fields to search here if desired */];
+
+// Helper function to get searchable fields from schema (fallback if not explicitly defined)
+const getSearchFields = (schema) => {
+    return searchableFields.length > 0
+        ? searchableFields
+        : Object.entries(schema.paths)
+            .filter(([_, schemaType]) => schemaType.instance === 'String')
+            .map(([path]) => path);
+};
+
+// GET: Retrieve all items with pagination, search, and sorting
 exports.getAll<%= _.capitalize(_.camelCase(tableName)) %>s = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, search } = req.query; // Lấy page, limit và search từ query params
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    try {
+        const { page = 1, limit = 10, search = '', sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const fields = getSearchFields(Model.schema);
 
-    let query = {}; // Đối tượng query ban đầu rỗng
+        // Build search query with case-insensitive regex
+        const query = search && fields.length
+            ? { $or: fields.map(field => ({ [field]: { $regex: search, $options: 'i' } })) }
+            : {};
 
-    // Nếu có tham số 'search', thêm điều kiện tìm kiếm vào query
-    if (search) {
-      // Tìm kiếm không phân biệt chữ hoa, chữ thường
-      // Áp dụng cho trường 'name' hoặc 'title' tùy thuộc vào schema của bạn
-      // Đảm bảo schema của bạn có trường 'name' hoặc 'title' để tìm kiếm
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { title: { $regex: search, $options: 'i' } }
-      ];
-      // Bạn có thể tùy chỉnh các trường tìm kiếm ở đây (ví dụ: { description: { $regex: search, $options: 'i' } })
+        // Build sort option object
+        const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+
+        // Fetch paginated data and total count in parallel
+        const [data, totalItems] = await Promise.all([
+            Model.find(query).sort(sortOptions).skip(skip).limit(parseInt(limit)),
+            Model.countDocuments(query),
+        ]);
+
+        res.status(200).json({
+            data,
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(totalItems / parseInt(limit)),
+            totalItems,
+        });
+    } catch (error) {
+        console.error("Error in getAll:", error);
+        res.status(500).json({ message: "Failed to retrieve data.", error: error.message });
     }
-
-    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.find(query)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const totalItems = await <%= _.capitalize(_.camelCase(tableName)) %>.countDocuments(query); // Đếm tổng số lượng với điều kiện tìm kiếm
-    const totalPages = Math.ceil(totalItems / parseInt(limit));
-
-    res.status(200).json({
-      data,
-      currentPage: parseInt(page),
-      totalPages,
-      totalItems,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
 };
 
-// Lấy <%= _.capitalize(_.camelCase(tableName)) %> theo ID
+// GET: Retrieve a single item by ID
 exports.get<%= _.capitalize(_.camelCase(tableName)) %>ById = async (req, res) => {
-  try {
-    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.findById(req.params.id);
-    if (!data) {
-      return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+    try {
+        const data = await Model.findById(req.params.id);
+        if (!data) {
+            return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+        }
+        res.status(200).json(data);
+    } catch (error) {
+        console.error("Error in getById:", error);
+        if (error.name === 'CastError') {
+            return res.status(400).json({ message: 'Invalid ID format.' });
+        }
+        res.status(500).json({ message: "Failed to retrieve data.", error: error.message });
     }
-    res.status(200).json(data);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
 };
 
-// Tạo mới <%= _.capitalize(_.camelCase(tableName)) %>
+// POST: Create a new item
 exports.create<%= _.capitalize(_.camelCase(tableName)) %> = async (req, res) => {
-  const newData = new <%= _.capitalize(_.camelCase(tableName)) %>(req.body);
-  try {
-    const savedData = await newData.save();
-    res.status(201).json(savedData);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+    try {
+        const newData = new Model(req.body);
+        const savedData = await newData.save();
+        res.status(201).json(savedData);
+    } catch (error) {
+        console.error("Error in create:", error);
+        if (error.name === 'ValidationError') {
+            // Send detailed validation errors to client
+            const errors = Object.fromEntries(
+                Object.entries(error.errors).map(([k, v]) => [k, v.message])
+            );
+            return res.status(400).json({ message: 'Validation failed', errors });
+        }
+        res.status(400).json({ message: "Failed to create data.", error: error.message });
+    }
 };
 
-// Cập nhật <%= _.capitalize(_.camelCase(tableName)) %>
+// PUT: Update an item by ID
 exports.update<%= _.capitalize(_.camelCase(tableName)) %> = async (req, res) => {
-  try {
-    const updatedData = await <%= _.capitalize(_.camelCase(tableName)) %>.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    if (!updatedData) {
-      return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+    try {
+        const updatedData = await Model.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true, runValidators: true }
+        );
+        if (!updatedData) {
+            return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+        }
+        res.status(200).json(updatedData);
+    } catch (error) {
+        console.error("Error in update:", error);
+        if (error.name === 'CastError') {
+            return res.status(400).json({ message: 'Invalid ID format.' });
+        }
+        if (error.name === 'ValidationError') {
+            const errors = Object.fromEntries(
+                Object.entries(error.errors).map(([k, v]) => [k, v.message])
+            );
+            return res.status(400).json({ message: 'Validation failed', errors });
+        }
+        res.status(400).json({ message: "Failed to update data.", error: error.message });
     }
-    res.status(200).json(updatedData);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
 };
 
-// Xóa <%= _.capitalize(_.camelCase(tableName)) %>
+// DELETE: Delete an item by ID
 exports.delete<%= _.capitalize(_.camelCase(tableName)) %> = async (req, res) => {
-  try {
-    const data = await <%= _.capitalize(_.camelCase(tableName)) %>.findByIdAndDelete(req.params.id);
-    if (!data) {
-      return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+    try {
+        const deleted = await Model.findByIdAndDelete(req.params.id);
+        if (!deleted) {
+            return res.status(404).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> not found' });
+        }
+        res.status(200).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> deleted successfully' });
+    } catch (error) {
+        console.error("Error in delete:", error);
+        if (error.name === 'CastError') {
+            return res.status(400).json({ message: 'Invalid ID format.' });
+        }
+        res.status(500).json({ message: "Failed to delete data.", error: error.message });
     }
-    res.status(200).json({ message: '<%= _.capitalize(_.camelCase(tableName)) %> deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
 };

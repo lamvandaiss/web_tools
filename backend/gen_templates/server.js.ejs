@@ -1,9 +1,10 @@
-const app = require('./app'); // Import ứng dụng Express từ app.js
+const app = require('./app'); // Import the Express app from app.js
 
-const PORT = process.env.PORT || 3000; // Lấy PORT từ .env hoặc mặc định là 3000
+const PORT = process.env.PORT || 3000; // Get port from .env or fallback to 3000
 
+// Start the server
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`Access APIs via: http://localhost:${PORT}/api/<your_resource>`);
-  console.log(`MongoDB URI: ${process.env.MONGODB_URI ? 'Connected' : 'Not configured'}`);
+  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`🌐 API available at: http://localhost:${PORT}/api/<your_resource>`);
+  console.log(`🛢️  MongoDB URI: ${process.env.MONGODB_URI ? 'Configured' : 'Not configured'}`);
 });

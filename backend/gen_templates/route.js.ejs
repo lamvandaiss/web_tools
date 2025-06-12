@@ -1,14 +1,92 @@
 const express = require('express');
 const router = express.Router();
 const <%= _.camelCase(tableName) %>Controller = require('../controllers/<%= _.camelCase(tableName) %>Controller');
-// Lấy tất cả
+const { body, param, validationResult } = require('express-validator');
+const createError = require('http-errors');
+
+// Middleware for validating input
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
+// Dynamic validation rules based on table name
+const <%= _.camelCase(tableName) %>ValidationRules = () => {
+  switch ('<%= tableName %>') {
+    case 'User':
+      return [
+        body('username').notEmpty().withMessage('Username is required').isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
+        body('email').isEmail().withMessage('Invalid email address'),
+        body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+      ];
+
+    case 'Product':
+      return [
+        body('name').notEmpty().withMessage('Product name is required'),
+        body('price').isFloat({ gt: 0 }).withMessage('Price must be positive'),
+        body('stock').isInt({ min: 0 }).withMessage('Stock must be a non-negative integer')
+      ];
+
+    case 'Category':
+      return [
+        body('name').notEmpty().withMessage('Category name is required').isLength({ min: 2 }),
+        body('slug').notEmpty().withMessage('Slug is required')
+          .matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).withMessage('Slug must be URL-friendly')
+      ];
+
+    case 'Order':
+      return [
+        body('user').isMongoId().withMessage('User ID must be valid'),
+        body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
+        body('items.*.product').isMongoId().withMessage('Product ID must be valid'),
+        body('items.*.quantity').isInt({ gt: 0 }).withMessage('Quantity must be positive'),
+        body('items.*.price').isFloat({ gt: 0 }).withMessage('Price must be positive'),
+        body('totalAmount').isFloat({ gt: 0 }).withMessage('Total amount must be positive'),
+        body('status').isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled']).withMessage('Invalid order status')
+      ];
+
+    case 'Review':
+      return [
+        body('user').isMongoId().withMessage('User ID must be valid'),
+        body('product').isMongoId().withMessage('Product ID must be valid'),
+        body('rating').isInt({ min: 1, max: 5 }).withMessage('Rating must be 1 to 5'),
+        body('comment').optional().isLength({ max: 500 }).withMessage('Comment max 500 chars')
+      ];
+
+    default:
+      return []; // No validation
+  }
+};
+
+// GET all items
 router.get('/', <%= _.camelCase(tableName) %>Controller.getAll<%= _.capitalize(_.camelCase(tableName)) %>s);
-// Lấy theo ID
-router.get('/:id', <%= _.camelCase(tableName) %>Controller.get<%= _.capitalize(_.camelCase(tableName)) %>ById);
-// Tạo mới
-router.post('/', <%= _.camelCase(tableName) %>Controller.create<%= _.capitalize(_.camelCase(tableName)) %>);
-// Cập nhật
-router.put('/:id', <%= _.camelCase(tableName) %>Controller.update<%= _.capitalize(_.camelCase(tableName)) %>);
-// Xóa
-router.delete('/:id', <%= _.camelCase(tableName) %>Controller.delete<%= _.capitalize(_.camelCase(tableName)) %>);
+
+// GET one item by ID
+router.get('/:id', [
+  param('id').isMongoId().withMessage('Invalid ID'),
+  validate
+], <%= _.camelCase(tableName) %>Controller.get<%= _.capitalize(_.camelCase(tableName)) %>ById);
+
+// POST create new item
+router.post('/', [
+  ...<%= _.camelCase(tableName) %>ValidationRules(),
+  validate
+], <%= _.camelCase(tableName) %>Controller.create<%= _.capitalize(_.camelCase(tableName)) %>);
+
+// PUT update item by ID
+router.put('/:id', [
+  param('id').isMongoId().withMessage('Invalid ID'),
+  ...<%= _.camelCase(tableName) %>ValidationRules(),
+  validate
+], <%= _.camelCase(tableName) %>Controller.update<%= _.capitalize(_.camelCase(tableName)) %>);
+
+// DELETE item by ID
+router.delete('/:id', [
+  param('id').isMongoId().withMessage('Invalid ID'),
+  validate
+], <%= _.camelCase(tableName) %>Controller.delete<%= _.capitalize(_.camelCase(tableName)) %>);
+
 module.exports = router;

@@ -1,14 +1,12 @@
 const mongoose = require("mongoose");
 const app = require("./app");
+
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 
-// Kết nối MongoDB
+// Connect to MongoDB
 mongoose
-  .connect(MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(MONGODB_URI)
   .then(() => {
     console.log("✅ Connected to MongoDB");
     app.listen(PORT, () => {
@@ -17,4 +15,5 @@ mongoose
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
+    process.exit(1); // Exit the process if DB connection fails
   });
