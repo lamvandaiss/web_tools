@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const ejs = require("ejs");
 const _ = require("lodash");
+const archiver = require("archiver"); // THÊM DÒNG NÀY
 
 // Đường dẫn gốc nơi tất cả các project backend được sinh ra sẽ nằm
 const GENERATED_PROJECTS_DIR = path.join(
@@ -16,15 +17,21 @@ const getGeneratedCodeSrcDir = () => path.join(currentProjectRoot, "src");
 
 // Đường dẫn đến thư mục chứa các template (model.js.ejs, controller.js.ejs, etc.)
 const TEMPLATES_DIR = path.join(__dirname, "../gen_templates");
-// Một mảng để lưu trữ tên các route file đã sinh ra
-const generatedRouteFiles = [];
+
+// Mảng tạm thời để lưu trữ tên các route file đã sinh ra cho index.js
+let generatedRouteNamesForIndexFile = [];
+
+// Mảng tổng hợp tất cả các đường dẫn file đã được sinh ra (đường dẫn tương đối với project root)
+let allGeneratedFilePaths = [];
+
 // Đường dẫn đến thư mục chứa các định nghĩa website mới
 const DEFINITIONS_DIR = path.join(
   __dirname,
   "..", // Ra khỏi 'controllers'
   "definitions" // Vào thư mục 'definitions'
 );
-// Hàm tạo chuỗi ngẫu nhiên cho comment (để code sinh ra "khác" nhau mỗi lần)
+
+// Hàm tạo chuỗi ngẫu nhiên cho comment
 function generateRandomString(length) {
   const characters =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -39,10 +46,10 @@ function generateRandomString(length) {
 function addRandomComment(code) {
   const timestamp = new Date().toISOString();
   const randomId = generateRandomString(8);
-  return `/* Generated on: ${timestamp} - ID: ${randomId} */\n\n` + code;
+  return `/* Generated on: ${timestamp} - ID: ${randomId} */\n` + code;
 }
 
-// Hàm để sinh mã dựa trên định nghĩa bảng
+// Hàm để sinh mã dựa trên định nghĩa bảng (Model, Controller, Route)
 async function generateCode(tableDefinition) {
   const { tableName, fields } = tableDefinition;
   const capitalizedTableName = _.capitalize(_.camelCase(tableName));
@@ -69,15 +76,22 @@ async function generateCode(tableDefinition) {
     _: _,
   };
 
+  // Helper để ghi file và thu thập đường dẫn
+  const writeAndCollect = (filePath, content, message) => {
+    fs.writeFileSync(filePath, content);
+    allGeneratedFilePaths.push(path.relative(currentProjectRoot, filePath)); // Lưu đường dẫn tương đối
+    console.log(message);
+  };
+
   // 1. Sinh Model
   const modelTemplatePath = path.join(TEMPLATES_DIR, "model.js.ejs");
   let modelCode = await ejs.renderFile(modelTemplatePath, templateData);
   modelCode = addRandomComment(modelCode);
-  fs.writeFileSync(
+  writeAndCollect(
     path.join(modelsOutputDir, `${camelCaseTableName}.js`),
-    modelCode
+    modelCode,
+    `Generated Model: <span class="math-inline">\{modelsOutputDir\}/</span>{camelCaseTableName}.js`
   );
-  console.log(`Generated Model: ${modelsOutputDir}/${camelCaseTableName}.js`);
 
   // 2. Sinh Controller
   const controllerTemplatePath = path.join(TEMPLATES_DIR, "controller.js.ejs");
@@ -86,85 +100,78 @@ async function generateCode(tableDefinition) {
     templateData
   );
   controllerCode = addRandomComment(controllerCode);
-  fs.writeFileSync(
+  writeAndCollect(
     path.join(controllersOutputDir, `${camelCaseTableName}Controller.js`),
-    controllerCode
-  );
-  console.log(
-    `Generated Controller: ${controllersOutputDir}/${camelCaseTableName}Controller.js`
+    controllerCode,
+    `Generated Controller: <span class="math-inline">\{controllersOutputDir\}/</span>{camelCaseTableName}Controller.js`
   );
 
   // 3. Sinh Route
   const routeTemplatePath = path.join(TEMPLATES_DIR, "route.js.ejs");
   let routeCode = await ejs.renderFile(routeTemplatePath, templateData);
   routeCode = addRandomComment(routeCode);
-  fs.writeFileSync(
+  writeAndCollect(
     path.join(routesOutputDir, `${camelCaseTableName}Routes.js`),
-    routeCode
-  );
-  console.log(
-    `Generated Route: ${routesOutputDir}/${camelCaseTableName}Routes.js`
+    routeCode,
+    `Generated Route: <span class="math-inline">\{routesOutputDir\}/</span>{camelCaseTableName}Routes.js`
   );
 
-  // Thêm tên file route đã sinh vào mảng
-  generatedRouteFiles.push(`${camelCaseTableName}Routes`);
+  // Thêm tên file route đã sinh vào mảng tạm thời cho index.js
+  generatedRouteNamesForIndexFile.push(`${camelCaseTableName}Routes`);
   console.log(`\nCode generation completed for table: ${tableName}`);
 }
 
 // Hàm để sinh ra file index.js tổng hợp các routes
 async function generateIndexRouteFile() {
-  const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes"); // Sử dụng getGeneratedCodeSrcDir()
+  const routesOutputDir = path.join(getGeneratedCodeSrcDir(), "routes");
   const indexPath = path.join(routesOutputDir, "index.js");
+
   let indexContent = `const express = require('express');\nconst router = express.Router();\n\n`;
 
-  generatedRouteFiles.forEach((routeFile) => {
+  generatedRouteNamesForIndexFile.forEach((routeFile) => {
     const routerVariableName =
       _.camelCase(routeFile.replace("Routes", "")) + "Router";
-    indexContent += `const ${routerVariableName} = require('./${routeFile}');\n`;
+    indexContent += `const <span class="math-inline">\{routerVariableName\} \= require\('\./</span>{routeFile}');\n`;
     indexContent += `router.use('/${_.kebabCase(routeFile.replace("Routes", ""))}', ${routerVariableName});\n\n`;
   });
 
   indexContent += `module.exports = router;\n`;
 
   indexContent = addRandomComment(indexContent);
+  // Ghi file và thêm đường dẫn vào danh sách tổng hợp
   fs.writeFileSync(indexPath, indexContent);
+  allGeneratedFilePaths.push(path.relative(currentProjectRoot, indexPath));
   console.log(`Generated Index Route File: ${indexPath}`);
 }
 
 // Hàm nội bộ để sinh code cho các models, controllers, routes của một loại website
 async function generateWebsiteCodeInternal(websiteType) {
-  // Đảm bảo reset mảng generatedRouteFiles cho mỗi lần sinh website mới
-  // Điều này rất quan trọng để index.js chỉ chứa các routes của project hiện tại.
-  generatedRouteFiles.length = 0;
+  // Reset mảng tên routes cho index.js khi bắt đầu sinh một loại website mới
+  generatedRouteNamesForIndexFile = [];
 
   let rawDefinition;
   let tablesToProcess;
-  let definitionDisplayName = websiteType; // Mặc định dùng websiteType cho tên hiển thị
+  let definitionDisplayName = websiteType;
 
   try {
     const definitionPath = path.join(
       DEFINITIONS_DIR,
       `${websiteType}Website.js`
     );
-    // Tải nội dung định nghĩa từ file
     rawDefinition = require(definitionPath);
 
-    // Kiểm tra cấu trúc của định nghĩa:
     if (Array.isArray(rawDefinition)) {
-      // Trường hợp 1: Định nghĩa là một mảng trực tiếp của các bảng (như các định nghĩa mới)
       tablesToProcess = rawDefinition;
     } else if (
       typeof rawDefinition === "object" &&
       rawDefinition !== null &&
       Array.isArray(rawDefinition.tables)
     ) {
-      // Trường hợp 2: Định nghĩa là một đối tượng có thuộc tính 'tables' là một mảng (như ecommerceWebsite.js)
       tablesToProcess = rawDefinition.tables;
       if (rawDefinition.name) {
-        definitionDisplayName = rawDefinition.name; // Lấy tên "đẹp" từ định nghĩa nếu có
+        definitionDisplayName = rawDefinition.name;
       }
     } else {
-      // Trường hợp lỗi: Định dạng file định nghĩa không hợp lệ
       throw new Error(
         `Invalid definition format for '${websiteType}'. Expected an array or an object with a 'tables' array.`
       );
@@ -178,19 +185,15 @@ async function generateWebsiteCodeInternal(websiteType) {
       `Error: Could not load or parse definition for website type '${websiteType}'.`,
       error
     );
-    // Ném lỗi rõ ràng để hàm gọi bên ngoài có thể bắt được và báo về frontend
     throw new Error(
       `Invalid website type or definition format: ${websiteType}. Details: ${error.message}`
     );
   }
 
-  // Duyệt qua từng bảng trong danh sách đã được xác định và sinh code
   for (const table of tablesToProcess) {
     await generateCode(table);
   }
 
-  // Sau khi tất cả các models, controllers, và routes cho các bảng đã được sinh,
-  // tạo file index.js để tổng hợp các routes đó.
   await generateIndexRouteFile();
 
   console.log(
@@ -198,15 +201,19 @@ async function generateWebsiteCodeInternal(websiteType) {
   );
 }
 
-// --- HÀM MỚI CHÍNH ĐỂ SINH TOÀN BỘ PROJECT BACKEND ---
+// --- HÀM CHÍNH ĐỂ SINH TOÀN BỘ PROJECT BACKEND ---
 async function generateFullBackendProject(websiteType, projectName) {
   if (!projectName) {
     throw new Error("Project name is required.");
   }
+
+  // Reset mảng tổng hợp đường dẫn file khi bắt đầu sinh project mới
+  allGeneratedFilePaths = [];
+
   // Thiết lập đường dẫn gốc cho project đang được sinh ra
   currentProjectRoot = path.join(GENERATED_PROJECTS_DIR, projectName);
 
-  // Xóa project cũ nếu tồn tại để đảm bảo một bản sinh mới sạch
+  // Xóa project cũ nếu tồn tại
   if (fs.existsSync(currentProjectRoot)) {
     fs.rmSync(currentProjectRoot, { recursive: true, force: true });
     console.log(`Cleaned up previous project in: ${currentProjectRoot}`);
@@ -216,49 +223,55 @@ async function generateFullBackendProject(websiteType, projectName) {
   fs.mkdirSync(currentProjectRoot, { recursive: true });
   fs.mkdirSync(getGeneratedCodeSrcDir(), { recursive: true }); // Tạo thư mục 'src'
 
-  // 1. Sinh file .env
+  // 1. Sinh file .env (thêm vào allGeneratedFilePaths)
   const envTemplatePath = path.join(TEMPLATES_DIR, "env.ejs");
   let envContent = await ejs.renderFile(envTemplatePath, { projectName });
   envContent = addRandomComment(envContent);
   fs.writeFileSync(path.join(currentProjectRoot, ".env"), envContent);
+  allGeneratedFilePaths.push(
+    path.relative(currentProjectRoot, path.join(currentProjectRoot, ".env"))
+  );
   console.log(`Generated .env: ${path.join(currentProjectRoot, ".env")}`);
 
-  // 2. Sinh file package.json
+  // 2. Sinh file package.json (thêm vào allGeneratedFilePaths)
   const packageJsonTemplatePath = path.join(TEMPLATES_DIR, "package.json.ejs");
   let packageJsonContent = await ejs.renderFile(packageJsonTemplatePath, {
     projectName,
     websiteType,
-    _: _,
+    _: _, // Đảm bảo _ được truyền vào nếu template cần
   });
-
+  packageJsonContent = addRandomComment(packageJsonContent); // Thêm comment vào package.json cũng được
   fs.writeFileSync(
     path.join(currentProjectRoot, "package.json"),
     packageJsonContent
+  );
+  allGeneratedFilePaths.push(
+    path.relative(
+      currentProjectRoot,
+      path.join(currentProjectRoot, "package.json")
+    )
   );
   console.log(
     `Generated package.json: ${path.join(currentProjectRoot, "package.json")}`
   );
 
-  // 3. Sinh file app.js (cho project được sinh ra)
+  // 3. Sinh file app.js
   const appJsTemplatePath = path.join(TEMPLATES_DIR, "app.js.ejs");
   let appJsContent = await ejs.renderFile(appJsTemplatePath, {});
   appJsContent = addRandomComment(appJsContent);
-  fs.writeFileSync(path.join(getGeneratedCodeSrcDir(), "app.js"), appJsContent);
-  console.log(
-    `Generated app.js: ${path.join(getGeneratedCodeSrcDir(), "app.js")}`
-  );
+  const appJsPath = path.join(getGeneratedCodeSrcDir(), "app.js");
+  fs.writeFileSync(appJsPath, appJsContent);
+  allGeneratedFilePaths.push(path.relative(currentProjectRoot, appJsPath));
+  console.log(`Generated app.js: ${appJsPath}`);
 
-  // 4. Sinh file server.js (cho project được sinh ra)
+  // 4. Sinh file server.js
   const serverJsTemplatePath = path.join(TEMPLATES_DIR, "server.js.ejs");
   let serverJsContent = await ejs.renderFile(serverJsTemplatePath, {});
   serverJsContent = addRandomComment(serverJsContent);
-  fs.writeFileSync(
-    path.join(getGeneratedCodeSrcDir(), "server.js"),
-    serverJsContent
-  );
-  console.log(
-    `Generated server.js: ${path.join(getGeneratedCodeSrcDir(), "server.js")}`
-  );
+  const serverJsPath = path.join(getGeneratedCodeSrcDir(), "server.js");
+  fs.writeFileSync(serverJsPath, serverJsContent);
+  allGeneratedFilePaths.push(path.relative(currentProjectRoot, serverJsPath));
+  console.log(`Generated server.js: ${serverJsPath}`);
 
   // 5. Gọi hàm sinh code core backend (models, controllers, routes)
   await generateWebsiteCodeInternal(websiteType);
@@ -266,22 +279,73 @@ async function generateFullBackendProject(websiteType, projectName) {
   console.log(
     `\nFull backend project '${projectName}' generated successfully in ${currentProjectRoot}`
   );
-  return { success: true, projectName, outputDir: currentProjectRoot };
-}
-function toSlug(text) {
-  return text
-    .replace(/đ/g, "d") // thay 'đ' thành 'd'
-    .replace(/Đ/g, "d")
-    .normalize("NFD") // tách các dấu ra khỏi chữ cái
-    .replace(/[\u0300-\u036f]/g, "") // xóa các dấu
-    .toLowerCase() // chuyển về chữ thường
-    .trim() // xóa khoảng trắng đầu/cuối
-    .replace(/\s+/g, "_") // thay khoảng trắng bằng dấu gạch nối
-    .replace(/[^a-z0-9\_]/g, "") // xóa ký tự đặc biệt (giữ lại a-z, 0-9, và dấu '_')
-    .replace(/\-{2,}/g, "_"); // thay nhiều dấu '-' liên tiếp thành 1 dấu
+  // Trả về danh sách đường dẫn file đã tạo và tên project để tải xuống
+  return {
+    success: true,
+    projectName,
+    outputDir: currentProjectRoot,
+    generatedFilePaths: allGeneratedFilePaths,
+  };
 }
 
-// Create code by type
+function toSlug(text) {
+  return text
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/_{2,}/g, "_");
+}
+
+// --- HÀM MỚI ĐỂ TẢI XUỐNG SOURCE CODE ---
+exports.downloadProject = async (req, res) => {
+  const projectName = req.params.projectName;
+  const projectPath = path.join(GENERATED_PROJECTS_DIR, projectName);
+  const zipFileName = `${projectName}.zip`;
+  const zipFilePath = path.join(GENERATED_PROJECTS_DIR, zipFileName);
+
+  if (!fs.existsSync(projectPath)) {
+    return res.status(404).json({ message: "Project not found." });
+  }
+
+  // Tạo một luồng nén
+  const archive = archiver("zip", {
+    zlib: { level: 9 }, // Mức độ nén tối đa
+  });
+
+  // Đặt các header phản hồi để trình duyệt biết đây là file tải xuống
+  res.writeHead(200, {
+    "Content-Type": "application/zip",
+    "Content-Disposition": `attachment; filename="${zipFileName}"`,
+  });
+
+  // Xử lý lỗi nén
+  archive.on("error", function (err) {
+    console.error("Archiver error:", err);
+    res.status(500).send({ error: err.message });
+  });
+
+  // Khi quá trình nén hoàn tất, kết thúc phản hồi
+  archive.on("end", function () {
+    console.log("Archive wrote %d bytes", archive.pointer());
+    // Không cần đóng res ở đây vì pipe đã làm điều đó
+  });
+
+  // Pipe dữ liệu nén trực tiếp đến phản hồi HTTP
+  archive.pipe(res);
+
+  // Thêm thư mục project vào tệp nén
+  archive.directory(projectPath, false); // false để không thêm thư mục gốc vào trong zip
+
+  // Hoàn tất quá trình nén
+  archive.finalize();
+};
+
+// Create code by type (đã có)
 exports.runBE = async (req, res) => {
   let { websiteType, projectName } = req.body;
   if (!websiteType || !projectName) {
@@ -304,6 +368,8 @@ exports.runBE = async (req, res) => {
         `Start the server: npm start (or npm run dev for development with nodemon)`,
       ],
       details: result,
+      generatedFilePaths: result.generatedFilePaths,
+      downloadProjectName: result.projectName, // Thêm tên project để tải xuống
     });
   } catch (error) {
     console.error("Error during full backend project generation:", error);
